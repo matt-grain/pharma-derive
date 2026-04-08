@@ -111,7 +111,7 @@ Legend: ✅ Done | 🔶 Designed (doc/architecture, not coded) | ❌ Not started
 
 | # | Requirement | Status | Where / Notes |
 |---|------------|--------|---------------|
-| 11A | Platform thinking (scales across studies) | 🔶 | Long-term memory cross-study, guard configs per study; needs design doc section |
+| 11A | Platform thinking (scales across studies) | ✅ | Engine is spec-agnostic (ARCHITECTURE.md "Transformation Spec" chapter). Same engine + different YAML = different study. Spec format in specs/TEMPLATE.md. Long-term memory cross-study, guard configs per study. |
 | 11B | Trade-offs (automation vs control, LLM vs rules, flexibility vs compliance) | 🔶 | AgentLens guards dial automation/control; needs design doc section |
 | 11C | Reliability (failure modes, error propagation) | 🔶 | Retry with escalation, max_iter, circuit breaker; needs design doc section |
 | 11D | Scaling use cases (multi-study, multi-modal) | 🔶 | Mentioned in ORCHESTRATION.md §5.4; needs design doc section |

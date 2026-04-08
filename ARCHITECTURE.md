@@ -221,6 +221,65 @@ The dual-dataset pattern is the **correct production architecture** for pharma, 
 - **Audit-friendly:** regulators can verify that no patient data flows to external services by inspecting prompts in the trace log (AgentLens captures every prompt).
 - **Model-agnostic:** if Sanofi switches from Azure OpenAI to an internal model, the data architecture doesn't change.
 
+## Transformation Spec — The Engine's Interface Contract
+
+The derivation engine is **study-agnostic**. It doesn't know about CDISC, ADaM, or any specific therapeutic area. What it knows:
+- A source dataset (any DataFrame)
+- A transformation spec (YAML describing what to derive)
+- A DAG of dependencies (built automatically from the spec)
+
+The spec is the interface between clinical teams (who know the science) and the engine (which knows how to generate, verify, and audit code). Same engine, different YAML = different study. This is the §11A Platform Thinking answer.
+
+### Spec → Engine → Output
+
+```
+specs/study_a.yaml + data/study_a/  →  Engine  →  Derived dataset + Audit trail
+specs/study_b.yaml + data/study_b/  →  Engine  →  Derived dataset + Audit trail
+         ↑                                ↑
+   Study-specific                  Study-agnostic
+   (written by biostat team)       (same code for all studies)
+```
+
+### Spec Structure (summary)
+
+```yaml
+study: cdiscpilot01                    # Study identifier
+source:
+  format: xpt                          # xpt, csv, parquet
+  path: data/sdtm/cdiscpilot01
+  domains: [dm, ex, ds]                # Source data files
+  primary_key: USUBJID
+
+derivations:
+  - variable: AGE_GROUP                # What to derive
+    source_columns: [AGE]              # From what (source OR derived)
+    logic: "Categorize into ..."       # Plain English rule
+    output_type: str                   # Expected dtype
+    allowed_values: ["<18","18-64",">=65"]  # Validation constraint
+
+  - variable: RISK_GROUP
+    source_columns: [AGE_GROUP, SAFFL] # ← depends on derived variables
+    logic: "High if >=65 and safety pop..."
+    output_type: str
+
+validation:
+  ground_truth:
+    path: data/adam/cdiscpilot01/adsl.xpt  # Compare against known-good
+    key: USUBJID
+```
+
+The engine reads `source_columns` and automatically detects dependencies: if `RISK_GROUP` lists `AGE_GROUP` (a derived variable), the DAG ensures AGE_GROUP is computed first.
+
+### Build Order: Engine First, Data Second
+
+1. **Define the spec format** (done — see `specs/TEMPLATE.md`)
+2. **Build the engine** against the spec interface, test with simple mock data (`specs/simple_mock.yaml`)
+3. **Write the CDISC spec** and validate with real data (`specs/cdiscpilot01_adsl.yaml`)
+
+This order ensures the engine is genuinely spec-agnostic — we don't accidentally hardcode CDISC assumptions.
+
+Full spec format reference: [`specs/TEMPLATE.md`](specs/TEMPLATE.md)
+
 ## Tech Stack
 
 | Layer | Technology | Rationale |
