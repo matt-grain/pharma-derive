@@ -94,7 +94,7 @@ class WorkflowState:
     started_at: str | None = None
     completed_at: str | None = None
 
-class WorkflowResult(BaseModel):
+class WorkflowResult(BaseModel, frozen=True):
     """Final output of a workflow run."""
     workflow_id: str
     study: str
@@ -107,9 +107,32 @@ class WorkflowResult(BaseModel):
     duration_seconds: float
 ```
 
+**FSM Transition Table (explicit — Sonnet must implement this exactly):**
+
+```python
+VALID_TRANSITIONS: dict[WorkflowStep, set[WorkflowStep]] = {
+    WorkflowStep.CREATED: {WorkflowStep.SPEC_REVIEW, WorkflowStep.FAILED},
+    WorkflowStep.SPEC_REVIEW: {WorkflowStep.DAG_BUILT, WorkflowStep.FAILED},
+    WorkflowStep.DAG_BUILT: {WorkflowStep.DERIVING, WorkflowStep.FAILED},
+    WorkflowStep.DERIVING: {WorkflowStep.VERIFYING, WorkflowStep.FAILED},
+    WorkflowStep.VERIFYING: {WorkflowStep.DERIVING, WorkflowStep.DEBUGGING, WorkflowStep.REVIEW, WorkflowStep.FAILED},
+    WorkflowStep.DEBUGGING: {WorkflowStep.VERIFYING, WorkflowStep.REVIEW, WorkflowStep.FAILED},
+    WorkflowStep.REVIEW: {WorkflowStep.AUDITING, WorkflowStep.FAILED},
+    WorkflowStep.AUDITING: {WorkflowStep.COMPLETED, WorkflowStep.FAILED},
+    WorkflowStep.COMPLETED: set(),  # terminal
+    WorkflowStep.FAILED: set(),     # terminal
+}
+
+def transition(state: WorkflowState, to: WorkflowStep) -> None:
+    """Transition FSM to new step. Raises ValueError on invalid transition."""
+    if to not in VALID_TRANSITIONS.get(state.step, set()):
+        raise ValueError(f"Invalid transition: {state.step} → {to}")
+    state.step = to
+```
+
 **Constraints:**
-- `WorkflowState.step` transitions follow the FSM in ARCHITECTURE.md
-- Invalid transitions raise `ValueError` (e.g., can't go from CREATED to DERIVING)
+- `transition()` is the ONLY way to change `state.step` — never assign directly
+- Invalid transitions raise `ValueError` with descriptive message
 - Each step logs via `loguru` at INFO level
 - Each step appends to `audit_records`
 - `_run_derivation` uses `asyncio.gather` for Coder + QC (as validated in prototype)
@@ -150,9 +173,9 @@ def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
 
 ## 3.2 DAG Executor
 
-### `src/engine/executor.py` (NEW)
+### `src/domain/executor.py` (NEW)
 
-**Purpose:** Executes generated derivation code safely on a DataFrame.
+**Purpose:** Executes generated derivation code safely on a DataFrame. Lives in `domain/` because code execution is pure domain logic (no framework deps) and `verification/comparator.py` depends on it (verification depends on domain only).
 
 **Public functions:**
 
@@ -188,7 +211,7 @@ def compare_results(
 **Supporting models (define in this file):**
 
 ```python
-class ExecutionResult(BaseModel):
+class ExecutionResult(BaseModel, frozen=True):
     """Result of executing derivation code."""
     success: bool
     series_json: str | None = None     # Serialized result if success
@@ -234,7 +257,7 @@ Empty file.
 
 ### `src/verification/comparator.py` (NEW)
 
-**Purpose:** Higher-level verification logic — wraps executor's comparison with AST similarity check and verdict decision.
+**Purpose:** Higher-level verification logic — wraps executor's comparison with AST similarity check and verdict decision. Imports `ExecutionResult`, `execute_derivation`, `compare_results` from `src/domain/executor.py` (domain layer — no layer violation).
 
 **Public functions:**
 
@@ -290,6 +313,8 @@ class VerificationResult(BaseModel, frozen=True):
 ## 3.4 Tests
 
 ### `tests/unit/test_executor.py` (NEW)
+
+**Purpose:** Tests for `src/domain/executor.py` (safe code execution + comparison).
 
 **Tests:**
 - `test_execute_derivation_simple_expression` — `"df['age'] * 2"` returns correct Series

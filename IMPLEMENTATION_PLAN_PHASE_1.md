@@ -100,12 +100,20 @@ jobs:
 **Models to define:**
 
 ```python
+class OutputDType(StrEnum):
+    """Valid output types for derivations — matches specs/TEMPLATE.md."""
+    STR = "str"
+    INT = "int"
+    FLOAT = "float"
+    BOOL = "bool"
+    CATEGORY = "category"
+
 class DerivationRule(BaseModel, frozen=True):
     """A single derivation from the transformation spec."""
     variable: str                    # Target variable name (e.g., "AGE_GROUP")
     source_columns: list[str]        # Input columns (source OR derived)
     logic: str                       # Plain English derivation logic
-    output_type: str                 # Expected dtype: "str", "int", "float", "bool"
+    output_type: OutputDType         # Expected dtype (StrEnum, not raw str)
     domain: str | None = None        # Source domain if ambiguous
     nullable: bool = True            # Can result contain nulls?
     allowed_values: list[str] | None = None  # Valid values for categorical
@@ -129,12 +137,24 @@ class SyntheticConfig(BaseModel, frozen=True):
     path: str | None = None
     rows: int = 15
 
+class GroundTruthConfig(BaseModel, frozen=True):
+    """Ground truth dataset for validation."""
+    path: str                        # Path to ground truth dataset
+    format: str                      # "csv", "xpt", "parquet"
+    key: str                         # Join key to match derived vs expected
+
+class ToleranceConfig(BaseModel, frozen=True):
+    """Tolerance settings for numeric comparisons."""
+    numeric: float = 0.0             # Acceptable difference for float comparisons
+
 class ValidationConfig(BaseModel, frozen=True):
-    """Optional ground truth validation config."""
-    path: str | None = None
-    format: str | None = None
-    key: str | None = None
-    tolerance_numeric: float = 0.0
+    """Optional validation config — matches YAML structure:
+    validation:
+      ground_truth: {path, format, key}
+      tolerance: {numeric}
+    """
+    ground_truth: GroundTruthConfig | None = None
+    tolerance: ToleranceConfig = ToleranceConfig()
 
 class TransformationSpec(BaseModel, frozen=True):
     """Complete transformation specification parsed from YAML."""
@@ -284,9 +304,11 @@ def get_source_columns(df: pd.DataFrame) -> set[str]:
 def generate_synthetic(df: pd.DataFrame, rows: int = 15) -> pd.DataFrame:
     """Generate a synthetic reference dataset from a real DataFrame.
     For each column:
-    - Numeric: random values in [min, max] range, with some nulls
-    - String/categorical: sample from unique values
-    - Date strings: random dates in [min, max] range
+    - Numeric (int64/float64): random values in [min, max] range, with ~10% nulls
+    - String/object: sample from unique values with replacement
+    - Date detection: if column dtype is object AND >80% of non-null values match
+      YYYY-MM-DD pattern (regex: r'^\d{4}-\d{2}-\d{2}$'), treat as date column →
+      random dates between min and max parsed dates
     Synthetic data is safe to include in LLM prompts.
     """
 ```
@@ -448,5 +470,7 @@ derivations:
 - `test_generate_synthetic_same_schema` — synthetic has same columns and dtypes
 - `test_generate_synthetic_correct_row_count` — respects `rows` param
 - `test_generate_synthetic_no_real_values` — no exact matches with real data (probabilistic but with >8 unique values per column, collision is unlikely)
+- `test_generate_synthetic_detects_date_columns` — date-like string columns produce valid YYYY-MM-DD synthetic dates
+- `test_load_source_data_unsupported_format_raises` — format="xlsx" → ValueError
 
 **Pattern:** Follow `test_<what>_<condition>_<expected>` naming. Use fixtures from conftest.

@@ -126,8 +126,8 @@ Each agent is a `PydanticAI Agent[DepsType, OutputType]` — typed, validated, w
 | Spec Interpreter | `SpecInterpretation` (rules + ambiguities) | — | Spec YAML |
 | Derivation Coder | `DerivationCode` (variable, code, approach) | `inspect_data`, `execute_code` | DataFrame, DerivationRule |
 | QC Programmer | `DerivationCode` (same type, isolated context) | `inspect_data`, `execute_code` | DataFrame, DerivationRule |
-| Debugger | `DebugAnalysis` (root cause, fix, verdict) | `diff_outputs`, `execute_code` | Both implementations, divergent rows |
-| Auditor | `AuditReport` (lineage, compliance, summary) | `export_lineage`, `check_compliance` | Enhanced DAG |
+| Debugger | `DebugAnalysis` (root cause, fix, verdict) | — (single-turn analysis) | Both implementations, divergent summary |
+| Auditor | `AuditSummary` (stats, summary, recommendations) | — (single-turn summarization) | DAG metadata, provenance |
 
 All agents share the same LLM gateway (`OpenAIChatModel` pointing to AgentLens proxy). The orchestrator dispatches them as independent async tasks.
 
@@ -463,11 +463,12 @@ homework/
 ├── specs/                     # Transformation specs (YAML)
 ├── src/
 │   ├── __init__.py
-│   ├── domain/                # Pure domain: models, DAG, spec parsing
+│   ├── domain/                # Pure domain: models, DAG, spec parsing, code execution
 │   │   ├── __init__.py
 │   │   ├── models.py          # DerivationRule, DAGNode, AuditRecord, etc.
 │   │   ├── dag.py             # DAG construction, topological sort
-│   │   └── spec_parser.py     # YAML spec → DerivationRule objects
+│   │   ├── spec_parser.py     # YAML spec → DerivationRule objects
+│   │   └── executor.py        # Safe code execution + result comparison
 │   ├── agents/                # PydanticAI agent definitions
 │   │   ├── __init__.py
 │   │   ├── tools.py           # Shared tools: inspect_data, execute_code
@@ -479,7 +480,6 @@ homework/
 │   ├── engine/                # Orchestration layer
 │   │   ├── __init__.py
 │   │   ├── orchestrator.py    # Workflow FSM, agent dispatch
-│   │   ├── executor.py        # DAG-ordered derivation execution
 │   │   ├── llm_gateway.py     # LLM abstraction (AgentLens mailbox)
 │   │   └── logging.py         # loguru configuration
 │   ├── verification/          # QC / double programming
@@ -509,7 +509,9 @@ homework/
 │   │   ├── test_agents.py
 │   │   ├── test_executor.py
 │   │   ├── test_comparator.py
-│   │   └── test_orchestrator.py
+│   │   ├── test_orchestrator.py
+│   │   ├── test_memory.py
+│   │   └── test_audit.py
 │   └── integration/
 │       └── test_workflow.py
 └── presentation/
@@ -528,9 +530,9 @@ homework/
 - **Depends on:** domain/
 
 ### engine/ — Orchestration
-- **Does:** Run the workflow FSM, dispatch agents in DAG order, manage LLM calls
+- **Does:** Run the workflow FSM, dispatch agents in DAG order, manage LLM calls, wire memory and audit
 - **Must NOT:** Define domain models or render UI
-- **Depends on:** domain/, agents/
+- **Depends on:** domain/, agents/, memory/, audit/
 
 ### verification/ — QC & Double Programming
 - **Does:** Compare primary vs QC outputs, generate discrepancy reports

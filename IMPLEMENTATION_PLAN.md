@@ -26,18 +26,20 @@
 ```
 Phase 1 (Domain)
   ├── models.py         → used by ALL other phases
-  ├── dag.py            → used by Phase 3 (executor)
+  ├── dag.py            → used by Phase 3 (orchestrator)
   ├── spec_parser.py    → used by Phase 3 (orchestrator)
   └── test fixtures     → used by ALL test files
          │
 Phase 2 (Agents)
   ├── agent definitions → used by Phase 3 (orchestrator dispatches them)
-  └── llm_gateway.py    → used by Phase 2 agents + Phase 3 orchestrator
+  ├── tools.py          → shared tools for coder + QC agents
+  └── llm_gateway.py    → used by Phase 3 orchestrator
          │
-Phase 3 (Engine)
-  ├── orchestrator.py   → used by Phase 4 (integration test)
-  ├── executor.py       → used by Phase 3 orchestrator
-  └── comparator.py     → used by Phase 3 executor
+Phase 3 (Engine + Verification)
+  ├── domain/executor.py → code execution + comparison (domain layer)
+  ├── orchestrator.py    → used by Phase 4 (integration test)
+  ├── comparator.py      → uses domain/executor.py (no layer violation)
+  └── logging.py         → loguru configuration
          │
 Phase 4 (Memory + Audit + Integration)
   ├── memory layers     → used by Phase 3 orchestrator (wired in)
