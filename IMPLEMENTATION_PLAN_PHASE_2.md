@@ -54,6 +54,55 @@ def create_llm(
 
 Empty file.
 
+### `src/agents/tools.py` (NEW)
+
+**Purpose:** Shared tools used by both Coder and QC agents. Extracted to avoid duplication and keep agent files under 200 lines.
+
+**Tools to define:**
+
+```python
+from pydantic_ai import RunContext
+from dataclasses import dataclass
+import pandas as pd
+
+@dataclass
+class CoderDeps:
+    """Dependencies for Coder and QC agents."""
+    df: pd.DataFrame            # Real source data (for tools only)
+    synthetic_csv: str          # Synthetic data as CSV string (for prompts)
+    rule: DerivationRule        # The derivation rule to implement
+    available_columns: list[str]  # Columns available at this DAG layer
+
+
+async def inspect_data(ctx: RunContext[CoderDeps]) -> str:
+    """Inspect the source dataset — returns schema, null counts, value ranges.
+    NEVER returns raw patient rows.
+
+    Returns formatted string with:
+    - Column names and dtypes
+    - Null count per column
+    - Value ranges (min/max for numeric, unique values for categorical)
+    - Total row count
+    - Synthetic sample (from ctx.deps.synthetic_csv)
+    """
+
+async def execute_code(ctx: RunContext[CoderDeps], code: str) -> str:
+    """Execute Python code on the dataset. Returns aggregate results only.
+
+    Namespace: df (DataFrame), pd (pandas), np (numpy).
+    Returns: success/fail + result dtype + null count + value distribution.
+    NEVER returns raw patient rows.
+
+    Security: restricted builtins — no import, no open, no eval.
+    """
+```
+
+**Constraints:**
+- `inspect_data` formats output as a multi-line string with sections (INFO, NULLS, RANGES, SYNTHETIC SAMPLE)
+- `execute_code` uses `exec()` with restricted `__builtins__` (only safe builtins like `len`, `range`, `str`, `int`, `float`, `bool`, `list`, `dict`, `None`, `True`, `False`)
+- Both functions are standalone (not decorated with `@agent.tool`) — they get registered on each agent in the agent definition files
+- `CoderDeps` is defined here and imported by both `derivation_coder.py` and `qc_programmer.py`
+
 ### `src/agents/spec_interpreter.py` (NEW)
 
 **Purpose:** PydanticAI agent that parses transformation specs and flags ambiguities.
@@ -109,16 +158,7 @@ class DerivationCode(BaseModel, frozen=True):
     null_handling: str      # How nulls are handled
 ```
 
-**Deps type:**
-
-```python
-@dataclass
-class CoderDeps:
-    df: pd.DataFrame            # Real source data (for tools only)
-    synthetic_csv: str          # Synthetic data as CSV string (for prompts)
-    rule: DerivationRule        # The derivation rule to implement
-    available_columns: list[str]  # Columns available at this DAG layer
-```
+**Deps type:** Import `CoderDeps` from `src/agents/tools.py`.
 
 **Agent definition:**
 
@@ -139,38 +179,29 @@ coder_agent = Agent(
 )
 ```
 
-**Tools:**
+**Tools:** Register shared tools from `src/agents/tools.py`:
 
 ```python
-@coder_agent.tool
-async def inspect_data(ctx: RunContext[CoderDeps]) -> str:
-    """Inspect the source dataset — returns schema, null counts, value ranges.
-    NEVER returns raw patient rows."""
-    # Return: column names, dtypes, null counts, value ranges, row count
-    # Use ctx.deps.df for real stats but format as aggregates only
+from src.agents.tools import inspect_data, execute_code
 
-@coder_agent.tool
-async def execute_code(ctx: RunContext[CoderDeps], code: str) -> str:
-    """Execute Python code on the dataset. Returns aggregate results only.
-    The DataFrame is available as `df`, pandas as `pd`, numpy as `np`."""
-    # Execute in restricted namespace
-    # Return: success/fail + result dtype + null count + value distribution
-    # NEVER return raw rows
+coder_agent.tool(inspect_data)
+coder_agent.tool(execute_code)
 ```
 
 **Constraints:**
+- Tools are defined in `tools.py`, registered here — no duplication
 - `inspect_data` returns aggregates only (data security — see ARCHITECTURE.md)
 - `execute_code` returns summary stats, not raw data
-- The synthetic CSV is included in the agent's prompt context (via system prompt or deps), NOT the real data
+- The synthetic CSV is included in the agent's prompt context (via deps), NOT the real data
 - Code output must be evaluable as a pandas expression
 
 ### `src/agents/qc_programmer.py` (NEW)
 
 **Purpose:** Independent QC agent — same interface as coder but different system prompt enforcing alternative approach.
 
-**Output type:** Reuse `DerivationCode` from `derivation_coder.py`.
+**Output type:** Import `DerivationCode` from `derivation_coder.py`.
 
-**Deps type:** Reuse `CoderDeps` from `derivation_coder.py`.
+**Deps type:** Import `CoderDeps` from `src/agents/tools.py`.
 
 **Agent definition:**
 
@@ -192,12 +223,20 @@ qc_agent = Agent(
 )
 ```
 
-**Tools:** Same `inspect_data` and `execute_code` as coder — registered with `@qc_agent.tool`.
+**Tools:** Register shared tools from `src/agents/tools.py` (same as coder):
+
+```python
+from src.agents.tools import inspect_data, execute_code
+
+qc_agent.tool(inspect_data)
+qc_agent.tool(execute_code)
+```
 
 **Constraints:**
 - QC agent has NO ACCESS to coder's output — enforced by isolated `agent.run()` calls
 - Different system prompt encourages alternative implementation
 - Same output schema enables programmatic comparison
+- Same tools as coder — both use shared implementations from `tools.py`
 
 ### `src/agents/debugger.py` (NEW)
 
@@ -279,7 +318,10 @@ class AuditorDeps:
 - `test_auditor_agent_has_correct_output_type` — verify `output_type` is `AuditSummary`
 - `test_inspect_data_returns_aggregates_only` — call the tool function directly with a mock DataFrame, verify no raw rows in output
 - `test_execute_code_returns_summary_not_raw_data` — call with `print(df.head())`, verify output is sanitized or blocked
+- `test_execute_code_blocks_dangerous_imports` — call with `import os; os.system('ls')`, verify blocked
+- `test_execute_code_blocks_file_access` — call with `open('/etc/passwd')`, verify blocked
 - `test_llm_gateway_creates_correct_model` — verify `create_llm()` returns `OpenAIChatModel` with correct base_url
+- `test_llm_gateway_reads_env_vars` — verify env var override works
 
 **Constraints:**
 - Do NOT call `agent.run()` — that requires a real LLM. Test the tool functions and agent config directly.

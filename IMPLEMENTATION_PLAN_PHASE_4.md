@@ -206,7 +206,51 @@ class AuditTrail:
 
 ---
 
-## 4.3 Integration Test
+## 4.3 Wire Memory + Audit into Orchestrator
+
+### `src/engine/orchestrator.py` (MODIFY)
+
+**Changes:**
+1. **Add `ShortTermMemory` to `__init__`:** Accept optional `state_dir: Path` parameter. Create `ShortTermMemory(state_dir, workflow_id)`. Save state after each FSM transition.
+2. **Add `LongTermMemory` to `__init__`:** Accept optional `db_path: Path` parameter. Create `LongTermMemory(db_path)`.
+3. **Add `AuditTrail` to `__init__`:** Create `AuditTrail(workflow_id)`. Replace `state.audit_records.append(...)` with `self.audit_trail.record(...)`.
+4. **Query patterns before derivation:** In `_run_derivation()`, call `long_term.query_patterns(rule.variable)`. If patterns found, include them in the agent prompt as "Reference: previously approved pattern for this variable type: {code}".
+5. **Store patterns after approval:** After a derivation passes QC, call `long_term.store_pattern(variable, logic, approved_code, study, approach)`.
+6. **Store QC results:** After comparison, call `long_term.store_qc_result(variable, verdict, coder_approach, qc_approach, study)`.
+7. **Export audit on completion:** In the final step, call `self.audit_trail.to_json(output_dir / "audit_trail.json")`.
+
+**Constraints:**
+- Memory and audit are optional — if `state_dir` or `db_path` is None, skip persistence (allows running without filesystem for unit tests)
+- AuditTrail records replace the inline `state.audit_records` list
+- `WorkflowResult.audit_records` populated from `self.audit_trail.records`
+
+### `tests/unit/test_memory.py` (NEW)
+
+**Tests:**
+- `test_short_term_save_and_load_state` — save WorkflowState, load it back, verify fields match
+- `test_short_term_save_intermediate` — save a variable result, load it back
+- `test_short_term_clear_removes_files` — clear removes all state files
+- `test_short_term_load_nonexistent_returns_none` — no file → None
+- `test_long_term_store_and_query_pattern` — store pattern, query by variable type, verify returned
+- `test_long_term_query_patterns_empty` — query non-existent type → empty list
+- `test_long_term_store_and_query_feedback` — store feedback, query by variable
+- `test_long_term_store_qc_result_and_stats` — store results, get_qc_stats returns correct rates
+- `test_long_term_uses_memory_db_for_tests` — verify `:memory:` works
+
+**Fixtures:** Use `tmp_path` for ShortTermMemory, `:memory:` path for LongTermMemory.
+
+### `tests/unit/test_audit.py` (NEW)
+
+**Tests:**
+- `test_audit_trail_append_only` — records grow, no delete method
+- `test_audit_trail_record_generates_timestamp` — verify ISO format
+- `test_audit_trail_get_variable_history` — filter by variable name
+- `test_audit_trail_to_json_creates_file` — export to tmp_path, verify valid JSON
+- `test_audit_trail_summary_counts` — verify action/agent aggregation
+
+---
+
+## 4.4 Integration Test
 
 ### `tests/integration/__init__.py` (NEW)
 
@@ -214,7 +258,7 @@ Empty file.
 
 ### `tests/integration/test_workflow.py` (NEW)
 
-**Purpose:** End-to-end test that runs the full orchestrator with `simple_mock.yaml`. Uses AgentLens mailbox — test provides LLM responses programmatically.
+**Purpose:** End-to-end test that runs the full orchestrator with `simple_mock.yaml`, with memory and audit wired in. Uses mocked LLM responses.
 
 **IMPORTANT:** This test validates the FULL pipeline but does NOT require a running AgentLens server. Instead, it mocks the LLM calls at the PydanticAI level using `pydantic_ai.models.test.TestModel` or by mocking the HTTP calls.
 

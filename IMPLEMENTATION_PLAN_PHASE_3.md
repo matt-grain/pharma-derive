@@ -70,23 +70,35 @@ class DerivationOrchestrator:
 **Supporting models (define in this file):**
 
 ```python
-class WorkflowState(BaseModel):
-    """Current state of the workflow."""
-    workflow_id: str                     # UUID
-    step: WorkflowStep                   # FSM state
+class WorkflowStatus(StrEnum):
+    """Final status of a workflow run."""
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+@dataclass
+class WorkflowState:
+    """Current state of the workflow.
+    NOTE: dataclass, NOT BaseModel — because DerivationDAG wraps networkx
+    which is not Pydantic-serializable. For persistence, use ShortTermMemory
+    which serializes individual fields.
+    """
+    workflow_id: str
+    step: WorkflowStep = WorkflowStep.CREATED
     spec: TransformationSpec | None = None
-    dag: DerivationDAG | None = None     # Not serializable — store as reference
+    dag: DerivationDAG | None = None
+    derived_df: pd.DataFrame | None = None   # DataFrame with derived columns added
+    synthetic_csv: str = ""                   # Generated synthetic reference for agent prompts
     current_variable: str | None = None
-    audit_records: list[AuditRecord] = []
-    errors: list[str] = []
-    started_at: str | None = None        # ISO timestamp
+    audit_records: list[AuditRecord] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    started_at: str | None = None
     completed_at: str | None = None
 
 class WorkflowResult(BaseModel):
     """Final output of a workflow run."""
     workflow_id: str
     study: str
-    status: str                          # "completed" or "failed"
+    status: WorkflowStatus               # StrEnum, not raw str
     derived_variables: list[str]
     qc_summary: dict[str, str]           # variable → verdict
     audit_records: list[AuditRecord]
@@ -104,6 +116,35 @@ class WorkflowResult(BaseModel):
 - `_run_dag_layer` uses `asyncio.gather` for all variables in the layer
 - Agent `model` is set via `agent.override(model=create_llm(llm_base_url))`
 - NO HITL gates in this phase — auto-approve everything (HITL added in UI phase later)
+- **Synthetic data wiring:** In `run()`, after loading source data, call `generate_synthetic(df)` from `spec_parser.py` and store as `state.synthetic_csv = synthetic_df.to_csv(index=False)`. Pass this to `CoderDeps.synthetic_csv` in `_run_derivation()`.
+- **Derived columns accumulate:** `state.derived_df` starts as a copy of source df. After each approved derivation, the new column is added to `derived_df`. The next derivation's `CoderDeps.df` is `state.derived_df` (with previously derived columns available).
+
+---
+
+### `src/engine/logging.py` (NEW)
+
+**Purpose:** Configure loguru for the orchestration engine.
+
+**Public function:**
+
+```python
+from loguru import logger
+
+def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
+    """Configure loguru for the orchestration engine.
+
+    Removes default stderr handler, adds:
+    - Console handler with colored output at `level`
+    - File handler (if log_file provided) at DEBUG level for full trace
+
+    Log format: "{time:HH:mm:ss} | {level:<8} | {name}:{function}:{line} | {message}"
+    """
+```
+
+**Constraints:**
+- Called once at orchestrator init
+- Uses `logger.remove()` to clear defaults, then `logger.add()` for each sink
+- No global side effects on import — only on explicit `setup_logging()` call
 
 ---
 
@@ -280,7 +321,11 @@ class VerificationResult(BaseModel, frozen=True):
 - `test_workflow_state_invalid_transition_raises` — CREATED → DERIVING raises ValueError
 - `test_orchestrator_creates_dag_from_spec` — verify DAG built correctly for simple_mock
 - `test_orchestrator_dag_layers` — verify layer assignment for simple_mock (3 layers)
+- `test_workflow_status_is_strenum` — `WorkflowStatus` values are "completed" and "failed"
+- `test_workflow_state_accumulates_derived_columns` — verify derived_df grows as columns are added
+- `test_orchestrator_handles_spec_parse_error` — invalid spec path → FAILED state + error recorded
+- `test_orchestrator_handles_dag_build_error` — circular dependency → FAILED state + error recorded
 
 **Constraints:**
 - Orchestrator tests that involve agents are integration tests (Phase 4)
-- This phase tests only the FSM logic and DAG wiring
+- This phase tests only the FSM logic, DAG wiring, and error handling

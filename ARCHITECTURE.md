@@ -467,10 +467,10 @@ homework/
 │   │   ├── __init__.py
 │   │   ├── models.py          # DerivationRule, DAGNode, AuditRecord, etc.
 │   │   ├── dag.py             # DAG construction, topological sort
-│   │   ├── spec_parser.py     # YAML spec → DerivationRule objects
-│   │   └── derivations.py     # Pure derivation functions
+│   │   └── spec_parser.py     # YAML spec → DerivationRule objects
 │   ├── agents/                # PydanticAI agent definitions
 │   │   ├── __init__.py
+│   │   ├── tools.py           # Shared tools: inspect_data, execute_code
 │   │   ├── spec_interpreter.py
 │   │   ├── derivation_coder.py
 │   │   ├── qc_programmer.py
@@ -480,15 +480,14 @@ homework/
 │   │   ├── __init__.py
 │   │   ├── orchestrator.py    # Workflow FSM, agent dispatch
 │   │   ├── executor.py        # DAG-ordered derivation execution
-│   │   └── llm_gateway.py     # LLM abstraction (AgentLens mailbox)
+│   │   ├── llm_gateway.py     # LLM abstraction (AgentLens mailbox)
+│   │   └── logging.py         # loguru configuration
 │   ├── verification/          # QC / double programming
 │   │   ├── __init__.py
-│   │   ├── comparator.py      # Compare primary vs QC outputs
-│   │   └── reporter.py        # QC discrepancy reports
+│   │   └── comparator.py      # Compare primary vs QC outputs, AST similarity
 │   ├── audit/                 # Traceability
 │   │   ├── __init__.py
-│   │   ├── trail.py           # Audit trail management
-│   │   └── export.py          # JSON/HTML export
+│   │   └── trail.py           # Audit trail management + JSON export
 │   ├── memory/                # Short-term + long-term memory
 │   │   ├── __init__.py
 │   │   ├── short_term.py      # Workflow state (JSON per run)
@@ -504,14 +503,15 @@ homework/
 ├── tests/
 │   ├── conftest.py
 │   ├── unit/
+│   │   ├── test_models.py
 │   │   ├── test_dag.py
-│   │   ├── test_derivations.py
 │   │   ├── test_spec_parser.py
+│   │   ├── test_agents.py
+│   │   ├── test_executor.py
 │   │   ├── test_comparator.py
-│   │   └── test_models.py
+│   │   └── test_orchestrator.py
 │   └── integration/
-│       ├── test_workflow.py
-│       └── test_agents.py
+│       └── test_workflow.py
 └── presentation/
 ```
 

@@ -40,7 +40,7 @@ homework/
 ├── src/
 │   ├── __init__.py
 │   ├── domain/                # Core domain: DAG, derivation rules, models
-│   ├── agents/                # Agent definitions (PydanticAI agents + tasks)
+│   ├── agents/                # Agent definitions (PydanticAI agents + shared tools)
 │   ├── engine/                # Orchestration: workflow, DAG execution, memory
 │   ├── verification/          # QC: double programming, comparison, reporting
 │   ├── audit/                 # Traceability: lineage, audit trail, export
