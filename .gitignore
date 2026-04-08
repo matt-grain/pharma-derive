@@ -1,0 +1,26 @@
+# Prototype validation — throwaway code, not part of deliverable
+prototypes/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+dist/
+*.egg-info/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files — too large for git, download via scripts/download_data.py
+data/sdtm/
+data/adam/
