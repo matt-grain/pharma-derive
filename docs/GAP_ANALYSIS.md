@@ -134,11 +134,13 @@ Legend: ✅ Done | 🔶 Designed (doc/architecture, not coded) | ❌ Not started
 
 **Day 1 assessment:** Architecture and design phase is ~90% complete. Implementation phase is at 0% but all patterns are validated by prototype. The gap is execution — building the actual system.
 
-**Critical path for remaining days:**
-1. Project setup (pyproject.toml, CI, Docker Compose skeleton)
-2. Domain layer (models, DAG, spec parser, derivations) + tests
-3. Agents + orchestration engine + verification
-4. Streamlit UI (HITL gates)
-5. Audit export + memory
-6. Design document (consolidate from existing docs)
-7. Presentation
+**All gaps are mapped to phases (see PHASES.md):**
+
+| Priority | Phases | What | Covers Gaps |
+|----------|--------|------|-------------|
+| **P0** | 1-4 | Engine core (domain, agents, orchestration, memory, audit) | §5A-E, §7.6, §8.1-8.2, §9.1-9.7, §10G |
+| **P1** | 5, 10 | CDISC data + design doc + presentation | §6.2, §8.3-8.4, §11B-E |
+| **P2** | 6, 7 | Streamlit UI + Docker Compose | §5C (HITL coded), §7.2 |
+| **P3** | 8, 9 | Guards/Sentinel + FastAPI API | §10C (guards active), stretch |
+
+**No requirement is unmapped.** Every ❌ and 🔶 in this table has a corresponding phase in PHASES.md.
