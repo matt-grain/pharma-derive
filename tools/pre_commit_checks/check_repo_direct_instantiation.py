@@ -8,6 +8,7 @@ Allowed locations for Repository():
 - src/persistence/ (the repos themselves)
 - tests/ (test fixtures create repos with test sessions)
 - main.py / dependencies.py (DI wiring)
+- TYPE_CHECKING blocks (type annotations only — no runtime coupling)
 
 Forbidden in: src/engine/, src/agents/, src/verification/, src/audit/, src/domain/
 """
@@ -29,10 +30,20 @@ class RepoInstantiationChecker(ast.NodeVisitor):
         self.file_path = file_path
         self.violations: list[Violation] = []
         self._layer = _get_layer(file_path)
+        self._in_type_checking = False
+
+    def visit_If(self, node: ast.If) -> None:
+        """Detect `if TYPE_CHECKING:` blocks and skip imports inside them."""
+        if isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING":
+            self._in_type_checking = True
+            self.generic_visit(node)
+            self._in_type_checking = False
+            return
+        self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
         if isinstance(node.func, ast.Name):
-            name = node.func.name if hasattr(node.func, "name") else node.func.id
+            name = node.func.id
             if any(name.endswith(suffix) for suffix in REPO_CLASS_SUFFIXES):
                 self.violations.append(
                     Violation(
@@ -44,6 +55,9 @@ class RepoInstantiationChecker(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if self._in_type_checking:
+            self.generic_visit(node)
+            return
         if node.module and "persistence" in node.module:
             for alias in node.names:
                 name = alias.name
