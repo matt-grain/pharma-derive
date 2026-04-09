@@ -10,6 +10,8 @@ dependencies = [
     "pyyaml>=6.0,<7",
     "loguru>=0.7,<1",
     "python-statemachine>=3.0,<4",
+    "sqlalchemy[asyncio]>=2.0,<3",
+    "aiosqlite>=0.21,<1",
 ]
 
 [project.optional-dependencies]

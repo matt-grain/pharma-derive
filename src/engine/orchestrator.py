@@ -8,18 +8,27 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pandas as pd  # noqa: TC002 — used in WorkflowState dataclass field at runtime
 from pydantic import BaseModel
 
 from src.agents.auditor import AuditorDeps, AuditSummary, auditor_agent
+from src.audit.trail import AuditTrail
 from src.domain.dag import DerivationDAG
 from src.domain.models import AuditRecord, DerivationStatus, TransformationSpec
 from src.domain.spec_parser import generate_synthetic, get_source_columns, load_source_data, parse_spec
 from src.engine.derivation_runner import run_variable
 from src.engine.llm_gateway import create_llm
 from src.engine.workflow_fsm import WorkflowFSM
+
+if TYPE_CHECKING:
+    from src.persistence.repositories import (
+        PatternRepository,
+        QCHistoryRepository,
+        WorkflowStateRepository,
+    )
 
 
 class WorkflowStatus(StrEnum):
@@ -63,11 +72,20 @@ class DerivationOrchestrator:
         self,
         spec_path: str | Path,
         llm_base_url: str = "http://localhost:8650/v1",
+        pattern_repo: PatternRepository | None = None,
+        qc_repo: QCHistoryRepository | None = None,
+        state_repo: WorkflowStateRepository | None = None,
+        output_dir: Path | None = None,
     ) -> None:
         self._spec_path = Path(spec_path)
         self._llm_base_url = llm_base_url
+        self._pattern_repo = pattern_repo
+        self._qc_repo = qc_repo
+        self._state_repo = state_repo
+        self._output_dir = output_dir
         self._fsm = WorkflowFSM(workflow_id=uuid4().hex[:8])
         self._state = WorkflowState(workflow_id=self._fsm.workflow_id)
+        self._audit_trail = AuditTrail(self._fsm.workflow_id)
 
     @property
     def state(self) -> WorkflowState:
@@ -76,6 +94,10 @@ class DerivationOrchestrator:
     @property
     def fsm(self) -> WorkflowFSM:
         return self._fsm
+
+    @property
+    def audit_trail(self) -> AuditTrail:
+        return self._audit_trail
 
     async def run(self) -> WorkflowResult:
         """Execute the full derivation workflow end-to-end."""
@@ -94,7 +116,12 @@ class DerivationOrchestrator:
             self._fsm.fail(str(exc))
 
         self._state.completed_at = datetime.now(UTC).isoformat()
-        return self._build_result(time.perf_counter() - start)
+        result = self._build_result(time.perf_counter() - start)
+
+        if self._output_dir is not None:
+            self._audit_trail.to_json(self._output_dir / f"{self._state.workflow_id}_audit.json")
+
+        return result
 
     async def _step_spec_review(self) -> None:
         self._fsm.start_spec_review()
@@ -104,6 +131,7 @@ class DerivationOrchestrator:
         self._state.synthetic_csv = generate_synthetic(source_df, rows=self._state.spec.synthetic.rows).to_csv(
             index=False
         )
+        self._audit_trail.record(variable="", action="spec_parsed", agent="orchestrator")
         self._fsm.finish_spec_review()
 
     async def _step_build_dag(self) -> None:
@@ -134,6 +162,21 @@ class DerivationOrchestrator:
             synthetic_csv=self._state.synthetic_csv,
             llm_base_url=self._llm_base_url,
         )
+        self._record_derivation_outcome(variable)
+
+    def _record_derivation_outcome(self, variable: str) -> None:
+        """Record an audit entry for the derivation outcome of a variable."""
+        assert self._state.dag is not None
+        node = self._state.dag.get_node(variable)
+        self._audit_trail.record(
+            variable=variable,
+            action="derivation_complete",
+            agent="orchestrator",
+            details={
+                "status": node.status.value,
+                "qc_verdict": node.qc_verdict.value if node.qc_verdict else None,
+            },
+        )
 
     async def _step_audit(self) -> None:
         assert self._state.dag is not None
@@ -149,6 +192,12 @@ class DerivationOrchestrator:
                 spec_metadata=self._state.spec.metadata,
             ),
             model=llm,
+        )
+        self._audit_trail.record(
+            variable="",
+            action="audit_complete",
+            agent="auditor",
+            details={"auto_approved": str(result.output.auto_approved)},
         )
         self._fsm.audit_records.append(
             AuditRecord(
@@ -174,13 +223,14 @@ class DerivationOrchestrator:
         status = WorkflowStatus.COMPLETED if self._fsm.current_state_value == "completed" else WorkflowStatus.FAILED
         study = self._state.spec.metadata.study if self._state.spec else "unknown"
 
+        all_audit = self._audit_trail.records + self._fsm.audit_records
         return WorkflowResult(
             workflow_id=self._state.workflow_id,
             study=study,
             status=status,
             derived_variables=derived,
             qc_summary=qc_summary,
-            audit_records=self._fsm.audit_records,
+            audit_records=all_audit,
             errors=self._state.errors,
             duration_seconds=round(elapsed, 3),
         )

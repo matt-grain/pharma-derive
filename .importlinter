@@ -95,65 +95,69 @@ forbidden_modules =
 # to violate.
 
 # =============================================================================
-# PHASE 4 CONTRACTS (uncomment when modules exist)
+# PHASE 4 CONTRACTS — activated now that src.persistence and src.audit exist
 # =============================================================================
 
-# [importlinter:contract:domain-no-persistence]
-# name = Domain cannot import from Persistence
-# type = forbidden
-# source_modules = src.domain
-# forbidden_modules = src.persistence
+[importlinter:contract:domain-no-persistence]
+name = Domain cannot import from Persistence
+type = forbidden
+source_modules = src.domain
+forbidden_modules = src.persistence
 
-# [importlinter:contract:domain-no-audit]
-# name = Domain cannot import from Audit
-# type = forbidden
-# source_modules = src.domain
-# forbidden_modules = src.audit
+[importlinter:contract:domain-no-audit]
+name = Domain cannot import from Audit
+type = forbidden
+source_modules = src.domain
+forbidden_modules = src.audit
 
-# [importlinter:contract:agents-no-persistence]
-# name = Agents cannot import from Persistence
-# type = forbidden
-# source_modules = src.agents
-# forbidden_modules = src.persistence
+[importlinter:contract:agents-no-persistence]
+name = Agents cannot import from Persistence
+type = forbidden
+source_modules = src.agents
+forbidden_modules = src.persistence
 
-# [importlinter:contract:agents-no-audit]
-# name = Agents cannot import from Audit
-# type = forbidden
-# source_modules = src.agents
-# forbidden_modules = src.audit
+[importlinter:contract:agents-no-audit]
+name = Agents cannot import from Audit
+type = forbidden
+source_modules = src.agents
+forbidden_modules = src.audit
 
-# [importlinter:contract:engine-no-persistence]
-# name = Engine cannot import Persistence directly (use DI)
-# type = forbidden
-# source_modules = src.engine
-# forbidden_modules = src.persistence
+[importlinter:contract:engine-no-persistence]
+name = Engine cannot import Persistence directly (use DI)
+type = forbidden
+source_modules = src.engine
+forbidden_modules = src.persistence
+# TYPE_CHECKING-only import: present only for type annotations, never executed at runtime.
+# The contract spirit (no runtime coupling) is maintained — repos are injected via DI.
+ignore_imports =
+    src.engine.orchestrator -> src.persistence.repositories
 
-# [importlinter:contract:verification-no-persistence]
-# name = Verification cannot import from Persistence
-# type = forbidden
-# source_modules = src.verification
-# forbidden_modules = src.persistence
+[importlinter:contract:verification-no-persistence]
+name = Verification cannot import from Persistence
+type = forbidden
+source_modules = src.verification
+forbidden_modules = src.persistence
 
-# [importlinter:contract:persistence-no-agents]
-# name = Persistence cannot import from Agents
-# type = forbidden
-# source_modules = src.persistence
-# forbidden_modules = src.agents
+[importlinter:contract:persistence-no-agents]
+name = Persistence cannot import from Agents
+type = forbidden
+source_modules = src.persistence
+forbidden_modules = src.agents
 
-# [importlinter:contract:persistence-no-engine]
-# name = Persistence cannot import from Engine
-# type = forbidden
-# source_modules = src.persistence
-# forbidden_modules = src.engine
+[importlinter:contract:persistence-no-engine]
+name = Persistence cannot import from Engine
+type = forbidden
+source_modules = src.persistence
+forbidden_modules = src.engine
 
-# [importlinter:contract:audit-no-engine]
-# name = Audit cannot import from Engine
-# type = forbidden
-# source_modules = src.audit
-# forbidden_modules = src.engine
+[importlinter:contract:audit-no-engine]
+name = Audit cannot import from Engine
+type = forbidden
+source_modules = src.audit
+forbidden_modules = src.engine
 
-# [importlinter:contract:audit-no-persistence]
-# name = Audit cannot import from Persistence
-# type = forbidden
-# source_modules = src.audit
-# forbidden_modules = src.persistence
+[importlinter:contract:audit-no-persistence]
+name = Audit cannot import from Persistence
+type = forbidden
+source_modules = src.audit
+forbidden_modules = src.persistence

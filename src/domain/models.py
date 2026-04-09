@@ -143,3 +143,35 @@ class AuditRecord(BaseModel, frozen=True):
     action: str
     agent: str
     details: dict[str, str | int | float | bool | None] = {}
+
+
+class PatternRecord(BaseModel, frozen=True):
+    """A validated derivation pattern stored for cross-run reuse."""
+
+    id: int
+    variable_type: str
+    spec_logic: str
+    approved_code: str
+    study: str
+    approach: str
+    created_at: str  # ISO 8601
+
+
+class FeedbackRecord(BaseModel, frozen=True):
+    """Human feedback on a derivation, stored for learning."""
+
+    id: int
+    variable: str
+    feedback: str
+    action_taken: str
+    study: str
+    created_at: str  # ISO 8601
+
+
+class QCStats(BaseModel, frozen=True):
+    """Aggregate QC statistics from historical runs."""
+
+    total: int
+    matches: int
+    mismatches: int
+    match_rate: float
