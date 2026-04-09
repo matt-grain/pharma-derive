@@ -9,6 +9,7 @@ dependencies = [
     "networkx>=3.4,<4",
     "pyyaml>=6.0,<7",
     "loguru>=0.7,<1",
+    "python-statemachine>=3.0,<4",
 ]
 
 [project.optional-dependencies]
