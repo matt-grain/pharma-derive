@@ -23,7 +23,9 @@ Empty file.
 **Public API:**
 
 ```python
+from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from src.persistence.orm_models import Base
 
 async def init_db(database_url: str = "sqlite+aiosqlite:///cdde.db") -> async_sessionmaker[AsyncSession]:
     """Create engine + session factory. Creates tables if needed.
@@ -34,16 +36,25 @@ async def init_db(database_url: str = "sqlite+aiosqlite:///cdde.db") -> async_se
     - Tests:      init_db("sqlite+aiosqlite:///:memory:")
 
     Returns async_sessionmaker for dependency injection.
+
+    IMPORTANT — async table creation pattern:
+        engine = create_async_engine(database_url, echo=False)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        return async_sessionmaker(engine, expire_on_commit=False)
     """
 
-async def get_session(session_factory: async_sessionmaker[AsyncSession]) -> AsyncGenerator[AsyncSession, None]:
+async def get_session(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncGenerator[AsyncSession, None]:
     """Yield an async session. For use with FastAPI Depends() or manual context manager."""
 ```
 
 **Constraints:**
 - Engine URL from environment variable `DATABASE_URL` with SQLite default
 - `create_async_engine(url, echo=False)` — echo only in DEBUG
-- Tables created via `Base.metadata.create_all()` in `init_db`
+- Tables created via `await conn.run_sync(Base.metadata.create_all)` — NOT sync `create_all()` which fails on async engines
+- `expire_on_commit=False` on sessionmaker (prevents lazy-load errors after commit in async)
 - No global engine or session — always injected
 
 ### `src/persistence/orm_models.py` (NEW)
@@ -83,7 +94,7 @@ class QCHistoryRow(Base):
     __tablename__ = "qc_history"
     id: Mapped[int] = mapped_column(primary_key=True)
     variable: Mapped[str] = mapped_column(String(100), index=True)
-    verdict: Mapped[str] = mapped_column(String(50))
+    verdict: Mapped[str] = mapped_column(String(50))  # stores QCVerdict enum values: "match", "mismatch", "insufficient_independence"
     coder_approach: Mapped[str] = mapped_column(String(200))
     qc_approach: Mapped[str] = mapped_column(String(200))
     study: Mapped[str] = mapped_column(String(100))
@@ -148,33 +159,6 @@ class WorkflowStateRepository:
     async def delete(self, workflow_id: str) -> None: ...
 ```
 
-**Supporting domain models (define in this file or in `src/domain/models.py`):**
-
-```python
-class PatternRecord(BaseModel, frozen=True):
-    id: int
-    variable_type: str
-    spec_logic: str
-    approved_code: str
-    study: str
-    approach: str
-    created_at: str
-
-class FeedbackRecord(BaseModel, frozen=True):
-    id: int
-    variable: str
-    feedback: str
-    action_taken: str
-    study: str
-    created_at: str
-
-class QCStats(BaseModel, frozen=True):
-    total: int
-    matches: int
-    mismatches: int
-    match_rate: float
-```
-
 **Constraints:**
 - Repositories return domain models (Pydantic), never ORM rows
 - All queries use `select()` (SQLAlchemy 2.0 style), never `session.query()`
@@ -182,6 +166,49 @@ class QCStats(BaseModel, frozen=True):
 - Repositories accept `AsyncSession` via constructor — injected by caller
 - All methods are async
 - Tests use `sqlite+aiosqlite:///:memory:` — same code path as production
+
+---
+
+## 4.1b Domain Model Additions
+
+### `src/domain/models.py` (MODIFY)
+
+**Purpose:** Add persistence-related domain models. These are domain models (not ORM), used as return types by repositories.
+
+**Add these 3 classes at the end of the file, after `AuditRecord`:**
+
+```python
+class PatternRecord(BaseModel, frozen=True):
+    """A validated derivation pattern stored for cross-run reuse."""
+    id: int
+    variable_type: str
+    spec_logic: str
+    approved_code: str
+    study: str
+    approach: str
+    created_at: str  # ISO 8601
+
+class FeedbackRecord(BaseModel, frozen=True):
+    """Human feedback on a derivation, stored for learning."""
+    id: int
+    variable: str
+    feedback: str
+    action_taken: str
+    study: str
+    created_at: str  # ISO 8601
+
+class QCStats(BaseModel, frozen=True):
+    """Aggregate QC statistics from historical runs."""
+    total: int
+    matches: int
+    mismatches: int
+    match_rate: float
+```
+
+**Constraints:**
+- These live in `src/domain/models.py`, NOT in `src/persistence/` — they are domain models used by repositories as return types and by the orchestrator
+- All `frozen=True` (immutable)
+- `created_at` is `str` (ISO 8601) not `datetime` — matches AuditRecord pattern
 
 ---
 
@@ -272,19 +299,64 @@ Orchestrator (engine/)
 
 ### `src/engine/orchestrator.py` (MODIFY)
 
-**Changes:**
-1. **Accept repositories via `__init__`:** Optional `pattern_repo`, `feedback_repo`, `qc_repo`, `state_repo` parameters (all `| None = None` for unit tests without DB).
-2. **Add `AuditTrail` to `__init__`:** Create `AuditTrail(workflow_id)`. FSM `audit_records` feed into the trail.
-3. **Query patterns before derivation:** In `_run_derivation()`, if `pattern_repo` is set, call `await pattern_repo.query_by_type(rule.variable)`. If patterns found, include in agent prompt as context.
-4. **Store patterns after approval:** After QC pass, if `pattern_repo` is set, call `await pattern_repo.store(...)`.
-5. **Store QC results:** After comparison, if `qc_repo` is set, call `await qc_repo.store(...)`.
-6. **Persist workflow state:** After each FSM transition, if `state_repo` is set, call `await state_repo.save(...)`.
-7. **Export audit on completion:** Call `self._audit_trail.to_json(output_dir / "audit_trail.json")`.
+**Updated constructor signature:**
+
+```python
+from src.persistence.repositories import (
+    PatternRepository,
+    QCHistoryRepository,
+    WorkflowStateRepository,
+)
+from src.audit.trail import AuditTrail
+
+class DerivationOrchestrator:
+    def __init__(
+        self,
+        spec_path: str | Path,
+        llm_base_url: str = "http://localhost:8650/v1",
+        pattern_repo: PatternRepository | None = None,
+        qc_repo: QCHistoryRepository | None = None,
+        state_repo: WorkflowStateRepository | None = None,
+        output_dir: Path | None = None,
+    ) -> None:
+        self._spec_path = Path(spec_path)
+        self._llm_base_url = llm_base_url
+        self._fsm = WorkflowFSM(workflow_id=uuid4().hex[:8])
+        self._state = WorkflowState(workflow_id=self._fsm.workflow_id)
+        self._pattern_repo = pattern_repo
+        self._qc_repo = qc_repo
+        self._state_repo = state_repo
+        self._output_dir = output_dir
+        self._audit_trail = AuditTrail(self._fsm.workflow_id)
+```
+
+**IMPORTANT — import-linter exception:** The orchestrator imports repository TYPE NAMES for type annotations. This does NOT violate engine-no-persistence because these are constructor parameter types, not direct usage. However, to keep it fully clean, consider using `TYPE_CHECKING`:
+
+```python
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.persistence.repositories import (
+        PatternRepository,
+        QCHistoryRepository,
+        WorkflowStateRepository,
+    )
+```
+
+This way the import is type-checking only — no runtime dependency on persistence. The actual repo objects are injected by the caller.
+
+**Changes to existing methods:**
+1. **`run()`:** After loading source data, merge FSM audit_records into `self._audit_trail`. On completion, export audit trail if `output_dir` is set.
+2. **`_run_derivation()` (in `derivation_runner.py`):** Accept optional `pattern_repo` and `qc_repo`. Before running coder, query patterns: `if pattern_repo: patterns = await pattern_repo.query_by_type(rule.variable)`. After QC pass, store: `if pattern_repo: await pattern_repo.store(...)`. After comparison, store QC result: `if qc_repo: await qc_repo.store(...)`.
+3. **FSM `after_transition` callback:** If `state_repo` is set, persist workflow state after each transition.
+4. **`run()` final step:** `if self._output_dir: self._audit_trail.to_json(self._output_dir / "audit_trail.json")`
 
 **Constraints:**
-- All repositories are optional (None = skip persistence). Unit tests run without DB.
-- Orchestrator depends on repository *interfaces*, not on sessions or ORM
+- All repositories are optional (`None` = skip persistence). Unit tests run without DB.
+- Orchestrator uses `TYPE_CHECKING` import for repo types — no runtime dependency on persistence module
 - `WorkflowResult.audit_records` populated from `self._audit_trail.records`
+- `FeedbackRepository` is NOT wired in the orchestrator — feedback comes from HITL UI (Phase 5+)
 
 ### `tests/unit/test_persistence.py` (NEW)
 
@@ -392,15 +464,84 @@ async def test_workflow_dag_order_respected(
     """
 ```
 
-**Mocking strategy:**
-- Use `pydantic_ai.models.test.TestModel` if available, otherwise mock `httpx.AsyncClient` at the transport level
-- Provide canned responses that match the expected structured output schemas
-- Coder responses: correct pandas code (tested in unit tests)
-- QC responses: alternative correct pandas code
+**Mocking strategy — use `pydantic_ai.models.test.TestModel`:**
+
+```python
+from pydantic_ai.models.test import TestModel
+
+# TestModel API (verified against installed pydantic-ai):
+# TestModel(custom_output_args=<dict matching output type fields>)
+# When agent.run() is called with this model, it returns the canned output directly.
+# Use agent.override(model=TestModel(...)) to inject.
+```
+
+**Canned outputs for each agent:**
+
+```python
+# Spec Interpreter — return the rules from simple_mock.yaml
+spec_test_model = TestModel(custom_output_args={
+    "rules": [
+        {"variable": "AGE_GROUP", "source_columns": ["age"], "logic": "...", "output_type": "str"},
+        # ... all 4 rules matching simple_mock.yaml
+    ],
+    "ambiguities": [],
+    "summary": "Parsed 4 derivation rules",
+})
+
+# Coder — return correct pandas code per variable
+coder_age_group = TestModel(custom_output_args={
+    "variable_name": "AGE_GROUP",
+    "python_code": "pd.cut(df['age'], bins=[0,18,65,200], labels=['minor','adult','senior'], right=False)",
+    "approach": "pd.cut with bins",
+    "null_handling": "NaN propagated by pd.cut",
+})
+
+# QC — return alternative correct code (different approach)
+qc_age_group = TestModel(custom_output_args={
+    "variable_name": "AGE_GROUP",
+    "python_code": "np.select([df['age']<18, df['age']<65, df['age']>=65], ['minor','adult','senior'], default=None)",
+    "approach": "np.select with conditions",
+    "null_handling": "default=None for NaN",
+})
+
+# Auditor — summary
+auditor_test_model = TestModel(custom_output_args={
+    "study": "simple_mock",
+    "total_derivations": 4,
+    "auto_approved": 4,
+    "qc_mismatches": 0,
+    "human_interventions": 0,
+    "summary": "All derivations passed QC",
+    "recommendations": [],
+})
+```
+
+**Integration test fixtures:**
+
+```python
+@pytest.fixture
+async def db_session() -> AsyncGenerator[AsyncSession, None]:
+    """In-memory SQLite session for integration tests."""
+    session_factory = await init_db("sqlite+aiosqlite:///:memory:")
+    async with session_factory() as session:
+        yield session
+
+@pytest.fixture
+def repos(db_session: AsyncSession) -> dict[str, Any]:
+    """Create all repositories from a single session."""
+    return {
+        "pattern_repo": PatternRepository(db_session),
+        "qc_repo": QCHistoryRepository(db_session),
+        "state_repo": WorkflowStateRepository(db_session),
+    }
+```
 
 **Constraints:**
-- Tests MUST be deterministic — no real LLM calls
+- Tests MUST be deterministic — no real LLM calls, use `TestModel` exclusively
 - Tests MUST run in CI without AgentLens server
 - Use `tmp_path` for all file operations (audit export)
 - Use `sqlite+aiosqlite:///:memory:` for DB tests (same code path as production)
 - Assert specific audit trail contents, not just "trail is non-empty"
+- Use `agent.override(model=TestModel(...))` to inject canned outputs per agent call
+
+**Post-implementation step:** Uncomment Phase 4 contracts in `.importlinter` and verify `uv run lint-imports` passes.
