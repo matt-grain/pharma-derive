@@ -1,0 +1,34 @@
+study: simple_mock
+description: "Minimal spec for engine development and testing"
+version: "0.1.0"
+author: "dev"
+
+source:
+  format: csv
+  path: tests/fixtures
+  domains: [patients]
+  primary_key: patient_id
+
+derivations:
+  - variable: AGE_GROUP
+    source_columns: [age]
+    logic: "If age < 18: 'minor'. If 18 <= age < 65: 'adult'. If age >= 65: 'senior'. Null if age missing."
+    output_type: str
+    allowed_values: ["minor", "adult", "senior"]
+
+  - variable: TREATMENT_DURATION
+    source_columns: [treatment_start, treatment_end]
+    logic: "Number of days between treatment_end and treatment_start plus 1 (inclusive). Null if either date is missing."
+    output_type: float
+    nullable: true
+
+  - variable: IS_ELDERLY
+    source_columns: [AGE_GROUP]
+    logic: "True if AGE_GROUP is 'senior', False otherwise. Null if AGE_GROUP is null."
+    output_type: bool
+
+  - variable: RISK_SCORE
+    source_columns: [IS_ELDERLY, TREATMENT_DURATION]
+    logic: "If IS_ELDERLY is True and TREATMENT_DURATION > 120, result is 'high'. If IS_ELDERLY is True and TREATMENT_DURATION <= 120, result is 'medium'. Otherwise 'low'. Null if any source is null."
+    output_type: str
+    allowed_values: ["high", "medium", "low"]

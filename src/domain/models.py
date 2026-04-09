@@ -1,0 +1,145 @@
+"""Domain models for the Clinical Data Derivation Engine."""
+
+from enum import StrEnum
+
+from pydantic import BaseModel
+
+
+class OutputDType(StrEnum):
+    """Valid output types for derivations — matches specs/TEMPLATE.md."""
+
+    STR = "str"
+    INT = "int"
+    FLOAT = "float"
+    BOOL = "bool"
+    CATEGORY = "category"
+
+
+class DerivationRule(BaseModel, frozen=True):
+    """A single derivation from the transformation spec."""
+
+    variable: str
+    source_columns: list[str]
+    logic: str
+    output_type: OutputDType
+    domain: str | None = None
+    nullable: bool = True
+    allowed_values: list[str] | None = None
+
+
+class SpecMetadata(BaseModel, frozen=True):
+    """Metadata from the transformation spec header."""
+
+    study: str
+    description: str
+    version: str = "0.1.0"
+    author: str = ""
+
+
+class SourceConfig(BaseModel, frozen=True):
+    """Source data configuration from the spec."""
+
+    format: str
+    path: str
+    domains: list[str]
+    primary_key: str = "USUBJID"
+
+
+class SyntheticConfig(BaseModel, frozen=True):
+    """Optional synthetic reference dataset config."""
+
+    path: str | None = None
+    rows: int = 15
+
+
+class GroundTruthConfig(BaseModel, frozen=True):
+    """Ground truth dataset for validation."""
+
+    path: str
+    format: str
+    key: str
+
+
+class ToleranceConfig(BaseModel, frozen=True):
+    """Tolerance settings for numeric comparisons."""
+
+    numeric: float = 0.0
+
+
+class ValidationConfig(BaseModel, frozen=True):
+    """Optional validation config."""
+
+    ground_truth: GroundTruthConfig | None = None
+    tolerance: ToleranceConfig = ToleranceConfig()
+
+
+class TransformationSpec(BaseModel, frozen=True):
+    """Complete transformation specification parsed from YAML."""
+
+    metadata: SpecMetadata
+    source: SourceConfig
+    synthetic: SyntheticConfig = SyntheticConfig()
+    validation: ValidationConfig = ValidationConfig()
+    derivations: list[DerivationRule]
+
+
+class QCVerdict(StrEnum):
+    """Result of comparing primary and QC implementations."""
+
+    MATCH = "match"
+    MISMATCH = "mismatch"
+    INSUFFICIENT_INDEPENDENCE = "insufficient_independence"
+
+
+class WorkflowStep(StrEnum):
+    """States in the workflow FSM."""
+
+    CREATED = "created"
+    SPEC_REVIEW = "spec_review"
+    DAG_BUILT = "dag_built"
+    DERIVING = "deriving"
+    VERIFYING = "verifying"
+    DEBUGGING = "debugging"
+    REVIEW = "review"
+    AUDITING = "auditing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class DerivationStatus(StrEnum):
+    """Status of a single derivation in the DAG."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    QC_PASS = "qc_pass"
+    QC_MISMATCH = "qc_mismatch"
+    APPROVED = "approved"
+    FAILED = "failed"
+
+
+class DAGNode(BaseModel):
+    """Enhanced DAG node — carries rule + execution provenance."""
+
+    rule: DerivationRule
+    status: DerivationStatus = DerivationStatus.PENDING
+    layer: int = 0
+    coder_code: str | None = None
+    coder_approach: str | None = None
+    qc_code: str | None = None
+    qc_approach: str | None = None
+    qc_verdict: QCVerdict | None = None
+    debug_analysis: str | None = None
+    approved_code: str | None = None
+    approved_by: str | None = None
+    approved_at: str | None = None
+
+
+class AuditRecord(BaseModel, frozen=True):
+    """Immutable audit trail entry."""
+
+    timestamp: str
+    workflow_id: str
+    variable: str
+    action: str
+    agent: str
+    details: dict[str, str | int | float | bool | None] = {}

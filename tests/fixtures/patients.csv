@@ -1,0 +1,9 @@
+patient_id,age,treatment_start,treatment_end,group
+P001,72,2024-01-15,2024-06-20,treatment
+P002,45,2024-02-01,2024-07-15,treatment
+P003,38,2024-01-20,2024-05-10,placebo
+P004,65,2024-03-01,,placebo
+P005,55,2024-02-15,2024-08-01,treatment
+P006,,2024-01-10,2024-04-30,placebo
+P007,15,2024-04-01,2024-09-15,treatment
+P008,81,2024-01-25,2024-06-01,placebo
