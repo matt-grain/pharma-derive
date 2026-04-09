@@ -2,17 +2,125 @@
 
 **Dependencies:** Phase 1 (domain models, DAG) + Phase 2 (agents, LLM gateway)
 **Agent:** `python-fastapi`
-**Estimated files:** 8
+**Estimated files:** 10 (was 8 — added `workflow_fsm.py` + `test_workflow_fsm.py`)
 
 This phase implements the orchestration layer — the workflow FSM, DAG-ordered executor, and QC comparator. This is where PydanticAI agents are composed into the clinical derivation pipeline using standard Python async patterns.
 
+**FSM library:** `python-statemachine` v3.0 — provides formal state machine definition with transition callbacks (for automatic logging + audit trail), guards, and `.graph()` export for presentation diagrams. Chosen over hand-rolled dict because clinical workflow transitions require audit logging on every state change — callbacks handle this declaratively instead of manually.
+
 ---
 
-## 3.1 Orchestrator (Workflow FSM)
+## 3.1 Workflow State Machine
+
+### `src/engine/workflow_fsm.py` (NEW)
+
+**Purpose:** Formal FSM definition using `python-statemachine`. Separated from `orchestrator.py` to keep the FSM definition pure and independently testable.
+
+**Implementation:**
+
+```python
+from datetime import datetime, timezone
+from statemachine import StateMachine, State
+from statemachine.exceptions import TransitionNotAllowed  # raised on invalid transitions
+from loguru import logger
+from src.domain.models import AuditRecord
+
+class WorkflowFSM(StateMachine):
+    """Clinical derivation workflow state machine.
+
+    States follow the WorkflowStep StrEnum values from domain/models.py.
+    Transition callbacks handle logging and audit trail automatically.
+    """
+
+    # --- States ---
+    created = State(initial=True)
+    spec_review = State()
+    dag_built = State()
+    deriving = State()
+    verifying = State()
+    debugging = State()
+    review = State()
+    auditing = State()
+    completed = State(final=True)
+    failed = State(final=True)
+
+    # --- Transitions ---
+    # Named transitions for each valid edge in the FSM
+    start_spec_review = created.to(spec_review)
+    finish_spec_review = spec_review.to(dag_built)
+    start_deriving = dag_built.to(deriving)
+    start_verifying = deriving.to(verifying)
+    next_variable = verifying.to(deriving)      # loop back for next variable
+    start_debugging = verifying.to(debugging)
+    finish_review_from_verify = verifying.to(review)  # all variables done
+    retry_from_debug = debugging.to(verifying)
+    finish_review_from_debug = debugging.to(review)   # escalate to human
+    start_auditing = review.to(auditing)
+    finish = auditing.to(completed)
+
+    # Failure transitions — any non-terminal state can fail
+    fail_from_created = created.to(failed)
+    fail_from_spec_review = spec_review.to(failed)
+    fail_from_dag_built = dag_built.to(failed)
+    fail_from_deriving = deriving.to(failed)
+    fail_from_verifying = verifying.to(failed)
+    fail_from_debugging = debugging.to(failed)
+    fail_from_review = review.to(failed)
+    fail_from_auditing = auditing.to(failed)
+
+    def __init__(self, workflow_id: str) -> None:
+        self.workflow_id = workflow_id
+        self.audit_records: list[AuditRecord] = []
+        super().__init__()
+
+    def after_transition(self, source: State, target: State, event: str) -> None:
+        """Called after every transition — logs and creates audit record.
+
+        NOTE: python-statemachine v3.0 API:
+        - `after_transition(self, source, target, event)` — called after any transition
+        - `source` / `target` are State objects, use `.id` for string name
+        - `event` is the transition method name (e.g., "start_spec_review")
+        """
+        logger.info(
+            "Workflow {wf_id}: {source} → {target} (via {event})",
+            wf_id=self.workflow_id, source=source.id, target=target.id, event=event,
+        )
+        self.audit_records.append(
+            AuditRecord(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                workflow_id=self.workflow_id,
+                variable="",
+                action=f"state_transition:{target.id}",
+                agent="orchestrator",
+                details={"event": event, "from": source.id},
+            )
+        )
+
+    def fail(self, error: str = "") -> None:
+        """Convenience: transition to failed from any non-terminal state.
+        Selects the correct fail_from_* transition based on current state.
+        """
+        fail_transition_name = f"fail_from_{self.current_state_value}"
+        getattr(self, fail_transition_name)()
+```
+
+**Constraints:**
+- States mirror `WorkflowStep` StrEnum values exactly (same names, lowercase)
+- `after_transition` callback handles logging + audit automatically — orchestrator doesn't need manual logging on transitions
+- `fail()` convenience method maps current state to the correct `fail_from_*` transition
+- FSM is independently testable — no agent or DataFrame dependencies
+
+**python-statemachine v3.0 API reference (verified against installed version):**
+- `State(initial=True)`, `State(final=True)`, `state_a.to(state_b)`
+- `fsm.current_state_value` → string id (e.g., `"created"`). NOTE: `current_state` property is DEPRECATED — use `current_state_value` instead
+- Invalid transitions raise `statemachine.exceptions.TransitionNotAllowed` (NOT `ValueError`)
+- Callbacks: `after_transition(self, source, target, event)` — source/target are `State` objects, event is transition method name
+- Per-state callbacks: `on_enter_<state_name>(self)`, `on_exit_<state_name>(self)` — named after the state
+- `on_enter_state(self, state, target)` is the generic callback (called on initial state too) — `state == target` (both refer to the state being entered)
 
 ### `src/engine/orchestrator.py` (NEW)
 
-**Purpose:** Top-level workflow controller. Manages the FSM states (CREATED → SPEC_REVIEW → ... → COMPLETED) and dispatches agents.
+**Purpose:** Top-level workflow controller. Uses `WorkflowFSM` for state management and dispatches agents.
 
 **Public class:**
 
@@ -25,11 +133,18 @@ class DerivationOrchestrator:
         spec_path: str | Path,
         llm_base_url: str = "http://localhost:8650/v1",
     ) -> None:
-        """Initialize with spec path and LLM config."""
+        """Initialize with spec path and LLM config.
+        Creates WorkflowFSM and WorkflowState."""
+        self._fsm = WorkflowFSM(workflow_id=uuid4().hex[:8])
+        self._state = WorkflowState(workflow_id=self._fsm.workflow_id)
 
     @property
     def state(self) -> WorkflowState:
         """Current workflow state (read-only view)."""
+
+    @property
+    def fsm(self) -> WorkflowFSM:
+        """Access to the FSM for state queries."""
 
     async def run(self) -> WorkflowResult:
         """Execute the full workflow end-to-end.
@@ -83,13 +198,11 @@ class WorkflowState:
     which serializes individual fields.
     """
     workflow_id: str
-    step: WorkflowStep = WorkflowStep.CREATED
     spec: TransformationSpec | None = None
     dag: DerivationDAG | None = None
     derived_df: pd.DataFrame | None = None   # DataFrame with derived columns added
     synthetic_csv: str = ""                   # Generated synthetic reference for agent prompts
     current_variable: str | None = None
-    audit_records: list[AuditRecord] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     started_at: str | None = None
     completed_at: str | None = None
@@ -107,34 +220,13 @@ class WorkflowResult(BaseModel, frozen=True):
     duration_seconds: float
 ```
 
-**FSM Transition Table (explicit — Sonnet must implement this exactly):**
-
-```python
-VALID_TRANSITIONS: dict[WorkflowStep, set[WorkflowStep]] = {
-    WorkflowStep.CREATED: {WorkflowStep.SPEC_REVIEW, WorkflowStep.FAILED},
-    WorkflowStep.SPEC_REVIEW: {WorkflowStep.DAG_BUILT, WorkflowStep.FAILED},
-    WorkflowStep.DAG_BUILT: {WorkflowStep.DERIVING, WorkflowStep.FAILED},
-    WorkflowStep.DERIVING: {WorkflowStep.VERIFYING, WorkflowStep.FAILED},
-    WorkflowStep.VERIFYING: {WorkflowStep.DERIVING, WorkflowStep.DEBUGGING, WorkflowStep.REVIEW, WorkflowStep.FAILED},
-    WorkflowStep.DEBUGGING: {WorkflowStep.VERIFYING, WorkflowStep.REVIEW, WorkflowStep.FAILED},
-    WorkflowStep.REVIEW: {WorkflowStep.AUDITING, WorkflowStep.FAILED},
-    WorkflowStep.AUDITING: {WorkflowStep.COMPLETED, WorkflowStep.FAILED},
-    WorkflowStep.COMPLETED: set(),  # terminal
-    WorkflowStep.FAILED: set(),     # terminal
-}
-
-def transition(state: WorkflowState, to: WorkflowStep) -> None:
-    """Transition FSM to new step. Raises ValueError on invalid transition."""
-    if to not in VALID_TRANSITIONS.get(state.step, set()):
-        raise ValueError(f"Invalid transition: {state.step} → {to}")
-    state.step = to
-```
-
 **Constraints:**
-- `transition()` is the ONLY way to change `state.step` — never assign directly
-- Invalid transitions raise `ValueError` with descriptive message
-- Each step logs via `loguru` at INFO level
-- Each step appends to `audit_records`
+- State transitions go through `self._fsm` — NEVER assign `_state.step` directly
+- `WorkflowState` no longer has `step` or `audit_records` fields — those live on the FSM
+- `self._fsm.current_state_value` gives current step name as string (matches WorkflowStep values). NOTE: `current_state` is DEPRECATED in v3.0
+- `self._fsm.audit_records` holds the audit trail (populated by FSM callbacks)
+- Each step uses named transitions: `self._fsm.start_spec_review()`, `self._fsm.finish_spec_review()`, etc.
+- Errors call `self._fsm.fail(error=msg)` which auto-routes to the correct `fail_from_*` transition
 - `_run_derivation` uses `asyncio.gather` for Coder + QC (as validated in prototype)
 - `_run_dag_layer` uses `asyncio.gather` for all variables in the layer
 - Agent `model` is set via `agent.override(model=create_llm(llm_base_url))`
@@ -338,12 +430,25 @@ class VerificationResult(BaseModel, frozen=True):
 - `test_compute_ast_similarity_different` — totally different → <0.5
 - `test_compute_ast_similarity_renamed_vars` — same logic, different var names → high similarity
 
+### `tests/unit/test_workflow_fsm.py` (NEW)
+
+**Purpose:** Tests for `src/engine/workflow_fsm.py` (FSM definition, transitions, callbacks).
+
+**Tests:**
+- `test_fsm_initial_state_is_created` — `WorkflowFSM("wf-1").current_state_value == "created"`
+- `test_fsm_valid_transition_succeeds` — `fsm.start_spec_review()` moves to spec_review (check via `current_state_value`)
+- `test_fsm_full_happy_path` — walk through created → spec_review → dag_built → deriving → verifying → review → auditing → completed
+- `test_fsm_invalid_transition_raises` — calling `fsm.start_deriving()` from created raises `TransitionNotAllowed` (from `statemachine.exceptions`)
+- `test_fsm_fail_from_any_state` — `fsm.fail()` works from spec_review, deriving, verifying, etc.
+- `test_fsm_completed_is_final` — no transitions from completed
+- `test_fsm_failed_is_final` — no transitions from failed
+- `test_fsm_on_enter_state_creates_audit_record` — after transition, `fsm.audit_records` has entries
+- `test_fsm_verify_to_debug_to_verify_loop` — verifying → debugging → verifying (retry loop)
+- `test_fsm_verify_to_deriving_loop` — verifying → deriving (next variable in layer)
+
 ### `tests/unit/test_orchestrator.py` (NEW)
 
-**Tests (do NOT call LLM — test FSM logic only):**
-- `test_workflow_state_initial_step` — starts at CREATED
-- `test_workflow_state_transitions` — valid transitions succeed
-- `test_workflow_state_invalid_transition_raises` — CREATED → DERIVING raises ValueError
+**Tests (do NOT call LLM — test orchestrator wiring and state):**
 - `test_orchestrator_creates_dag_from_spec` — verify DAG built correctly for simple_mock
 - `test_orchestrator_dag_layers` — verify layer assignment for simple_mock (3 layers)
 - `test_workflow_status_is_strenum` — `WorkflowStatus` values are "completed" and "failed"

@@ -53,3 +53,27 @@
 **Decision:** Apply full engineering discipline: ruff, pyright strict, pytest >80% coverage on core logic, GitHub Actions CI, ARCHITECTURE.md, decisions.md, typed interfaces throughout.
 **Alternatives considered:** Jupyter notebook with inline documentation (typical for academic/DS submissions).
 **Consequences:** Differentiates from PhD-heavy candidates who submit notebooks. Slightly more setup time but demonstrates the system could be deployed and maintained by a team. Engineering practices are our default workflow — minimal additional effort.
+
+## 2026-04-09 — python-statemachine for Workflow FSM
+
+**Status:** accepted
+**Context:** The orchestration workflow has 10 states and ~18 transitions, with audit requirements (every transition must be logged for 21 CFR Part 11 traceability). Initial plan used a hand-rolled dict + transition function (~15 lines).
+**Decision:** Use `python-statemachine` v3.0 for the workflow FSM. Define states/transitions declaratively with `on_enter_state` callbacks for automatic logging and audit trail generation.
+**Alternatives considered:** Hand-rolled `VALID_TRANSITIONS` dict with `transition()` function (simpler, no dependency). Rejected because audit logging on every transition would require manual `logger.info()` + `audit_records.append()` after every call — error-prone and repetitive.
+**Consequences:** Small dependency (pure Python, no transitive deps). Transition callbacks handle audit logging declaratively. `.graph()` export available for panel presentation diagrams. FSM is independently testable. Trade-off: slightly more ceremony in class definition vs. a 15-line function.
+
+## 2026-04-09 — SQLAlchemy for Persistence (not raw sqlite3)
+
+**Status:** accepted
+**Context:** The engine needs persistent storage for validated patterns, QC history, workflow state, and feedback. Initial plan used raw `sqlite3` with a comment "swap to PostgreSQL later". The panel evaluates "production readiness" explicitly.
+**Decision:** Use SQLAlchemy 2.0 async (`AsyncSession`, `Mapped[]`, `mapped_column()`) with `aiosqlite` driver for local dev and `asyncpg` for PostgreSQL. Repository pattern: orchestrator depends on repository interfaces, never on sessions or ORM directly.
+**Alternatives considered:** (1) Raw `sqlite3` (simpler, zero deps) — rejected because "swap later" is tech debt theater; the panel will see a SQLite-locked prototype. (2) Raw `asyncpg` for PostgreSQL only — rejected because local dev without Docker requires SQLite.
+**Consequences:** Zero-code-change deployment path: `sqlite+aiosqlite:///cdde.db` (local) → `postgresql+asyncpg://...` (Docker/prod) via a single `DATABASE_URL` env var. Repository layer adds ~100 lines of infra code but enforces clean separation: ORM models ≠ domain models, repositories return Pydantic schemas. Tests use `sqlite+aiosqlite:///:memory:` — same code path, no mocking.
+
+## 2026-04-09 — Orchestrator as Application Service (No Separate Service Layer)
+
+**Status:** accepted
+**Context:** Traditional layered architecture (Fowler, PoEAA) places a Service Layer between controllers and repositories. Should we insert a service layer between the orchestrator and the persistence repositories?
+**Decision:** No separate service layer. The orchestrator IS the application service — it coordinates domain operations (DAG, agents, verification) and uses repositories for persistence via constructor DI. Adding `PatternService`, `FeedbackService` etc. would create pure pass-through classes with no business logic.
+**Alternatives considered:** (1) Dedicated service classes per domain concept (PatternService, QCService) — rejected because the business rules ("store pattern after QC pass", "query patterns before derivation") are workflow decisions that live in the orchestrator, not in pattern-management services. A service layer here would be an anemic pass-through (Fowler, "Anemic Domain Model", 2003). (2) CQRS with separate read/write services — rejected as over-engineering for a single-process application.
+**Consequences:** The orchestrator combines Application Service (Fowler) + Process Manager (Hohpe & Woolf) roles. Repositories are injected via constructor (DI), never imported directly. Unit tests pass `None` for repos, integration tests use in-memory SQLite. Full rationale with references in `docs/ORCHESTRATION_DESIGN.md`.

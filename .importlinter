@@ -1,0 +1,159 @@
+[importlinter]
+root_package = src
+include_external_packages = false
+
+# =============================================================================
+# ARCHITECTURAL BOUNDARY CONTRACTS — Clinical Data Derivation Engine
+#
+# Enforces: domain (pure) → agents → engine → verification
+# Each layer can only import from layers below it, never above.
+#
+# NOTE: Contracts for src.audit, src.persistence, src.ui are commented out
+# until those modules exist (Phase 4+). Uncomment when implementing.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# DOMAIN LAYER — Pure Python + Pydantic + networkx + pandas
+# The domain layer is the foundation. It must NOT import from any upper layer.
+# -----------------------------------------------------------------------------
+
+[importlinter:contract:domain-no-agents]
+name = Domain cannot import from Agents
+type = forbidden
+source_modules =
+    src.domain
+forbidden_modules =
+    src.agents
+
+[importlinter:contract:domain-no-engine]
+name = Domain cannot import from Engine
+type = forbidden
+source_modules =
+    src.domain
+forbidden_modules =
+    src.engine
+
+[importlinter:contract:domain-no-verification]
+name = Domain cannot import from Verification
+type = forbidden
+source_modules =
+    src.domain
+forbidden_modules =
+    src.verification
+
+# -----------------------------------------------------------------------------
+# AGENTS LAYER — Depends on domain/ only
+# Agents define PydanticAI agent configs + tools. No engine, no persistence.
+# -----------------------------------------------------------------------------
+
+[importlinter:contract:agents-no-engine]
+name = Agents cannot import from Engine
+type = forbidden
+source_modules =
+    src.agents
+forbidden_modules =
+    src.engine
+
+[importlinter:contract:agents-no-verification]
+name = Agents cannot import from Verification
+type = forbidden
+source_modules =
+    src.agents
+forbidden_modules =
+    src.verification
+
+# -----------------------------------------------------------------------------
+# VERIFICATION LAYER — Depends on domain/ only
+# Verification compares coder vs QC outputs. Independent of agents and engine.
+# This ensures QC independence — verification doesn't know about agent internals.
+# -----------------------------------------------------------------------------
+
+[importlinter:contract:verification-no-agents]
+name = Verification cannot import from Agents (QC independence)
+type = forbidden
+source_modules =
+    src.verification
+forbidden_modules =
+    src.agents
+
+[importlinter:contract:verification-no-engine]
+name = Verification cannot import from Engine
+type = forbidden
+source_modules =
+    src.verification
+forbidden_modules =
+    src.engine
+
+# -----------------------------------------------------------------------------
+# ENGINE LAYER — Depends on domain/, agents/, verification/
+# Engine orchestrates the workflow. In Phase 4, persistence is injected via DI
+# (engine must NOT directly import from persistence).
+# -----------------------------------------------------------------------------
+
+# NOTE: engine-no-persistence contract will be added in Phase 4 when
+# src.persistence module exists. For now, engine has no persistence imports
+# to violate.
+
+# =============================================================================
+# PHASE 4 CONTRACTS (uncomment when modules exist)
+# =============================================================================
+
+# [importlinter:contract:domain-no-persistence]
+# name = Domain cannot import from Persistence
+# type = forbidden
+# source_modules = src.domain
+# forbidden_modules = src.persistence
+
+# [importlinter:contract:domain-no-audit]
+# name = Domain cannot import from Audit
+# type = forbidden
+# source_modules = src.domain
+# forbidden_modules = src.audit
+
+# [importlinter:contract:agents-no-persistence]
+# name = Agents cannot import from Persistence
+# type = forbidden
+# source_modules = src.agents
+# forbidden_modules = src.persistence
+
+# [importlinter:contract:agents-no-audit]
+# name = Agents cannot import from Audit
+# type = forbidden
+# source_modules = src.agents
+# forbidden_modules = src.audit
+
+# [importlinter:contract:engine-no-persistence]
+# name = Engine cannot import Persistence directly (use DI)
+# type = forbidden
+# source_modules = src.engine
+# forbidden_modules = src.persistence
+
+# [importlinter:contract:verification-no-persistence]
+# name = Verification cannot import from Persistence
+# type = forbidden
+# source_modules = src.verification
+# forbidden_modules = src.persistence
+
+# [importlinter:contract:persistence-no-agents]
+# name = Persistence cannot import from Agents
+# type = forbidden
+# source_modules = src.persistence
+# forbidden_modules = src.agents
+
+# [importlinter:contract:persistence-no-engine]
+# name = Persistence cannot import from Engine
+# type = forbidden
+# source_modules = src.persistence
+# forbidden_modules = src.engine
+
+# [importlinter:contract:audit-no-engine]
+# name = Audit cannot import from Engine
+# type = forbidden
+# source_modules = src.audit
+# forbidden_modules = src.engine
+
+# [importlinter:contract:audit-no-persistence]
+# name = Audit cannot import from Persistence
+# type = forbidden
+# source_modules = src.audit
+# forbidden_modules = src.persistence

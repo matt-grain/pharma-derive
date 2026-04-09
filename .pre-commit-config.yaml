@@ -1,4 +1,5 @@
 repos:
+  # Ruff — fast linter + formatter
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.10
     hooks:
@@ -8,19 +9,110 @@ repos:
       - id: ruff-format
         exclude: ^(scripts/|prototypes/)
 
+  # Local hooks
   - repo: local
     hooks:
+      # --- Pre-commit (fast, every commit) ---
+
       - id: pyright
-        name: pyright
+        name: pyright (type checker)
         entry: uv run pyright src/ tests/
         language: system
         types: [python]
         pass_filenames: false
 
+      # --- Pre-push (thorough, before push) ---
+
       - id: pytest
-        name: pytest
+        name: pytest (tests + coverage)
         entry: uv run pytest -x -q --cov=src --cov-fail-under=80
         language: system
         types: [python]
         pass_filenames: false
+        stages: [pre-push]
+
+      - id: import-linter
+        name: import-linter (layer boundaries)
+        entry: uv run lint-imports
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: radon-cc
+        name: radon (cyclomatic complexity)
+        entry: uv run radon cc src/ -a -nc
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: radon-mi
+        name: radon (maintainability index)
+        entry: uv run radon mi src/ -nc
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: vulture
+        name: vulture (dead code detection)
+        entry: uv run vulture src/ --min-confidence 80
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      # --- Custom architectural checks (pre-push) ---
+
+      - id: check-domain-purity
+        name: check domain layer purity
+        entry: uv run python tools/pre_commit_checks/check_domain_purity.py
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]
+
+      - id: check-raw-sql-in-engine
+        name: check no raw SQL in engine
+        entry: uv run python tools/pre_commit_checks/check_raw_sql_in_engine.py
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]
+
+      - id: check-patient-data-leaks
+        name: check no patient data leaks in agents
+        entry: uv run python tools/pre_commit_checks/check_patient_data_leaks.py
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]
+
+      - id: check-datetime-patterns
+        name: check datetime patterns (audit integrity)
+        entry: uv run python tools/pre_commit_checks/check_datetime_patterns.py
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]
+
+      - id: check-domain-no-ui-exceptions
+        name: check no UI exceptions in domain/agents/verification
+        entry: uv run python tools/pre_commit_checks/check_domain_no_ui_exceptions.py
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]
+
+      - id: check-engine-no-ui-exceptions
+        name: check no UI exceptions in engine
+        entry: uv run python tools/pre_commit_checks/check_engine_no_ui_exceptions.py
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]
+
+      - id: check-repo-direct-instantiation
+        name: check no direct repository instantiation (DI enforcement)
+        entry: uv run python tools/pre_commit_checks/check_repo_direct_instantiation.py
+        language: system
+        pass_filenames: false
+        types: [python]
         stages: [pre-push]
