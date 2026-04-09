@@ -40,7 +40,8 @@ class DerivationDAG:
     def _compute_layers(self) -> None:
         """Compute topological layers and assign layer index to each node."""
         self._layers = [
-            list(gen) for gen in nx.topological_generations(self._graph)  # type: ignore[arg-type]
+            list(gen)
+            for gen in nx.topological_generations(self._graph)  # type: ignore[arg-type]
         ]
         for layer_idx, variables in enumerate(self._layers):
             for var in variables:
