@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from statemachine.exceptions import TransitionNotAllowed
 
-from src.engine.workflow_fsm import WorkflowFSM
+from src.domain.workflow_fsm import WorkflowFSM
 
 
 @pytest.fixture

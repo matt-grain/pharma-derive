@@ -11,13 +11,13 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002 — used at runtime in pytest fixture return type
 
 from src.domain.models import QCVerdict
-from src.persistence.database import init_db
-from src.persistence.repositories import (
+from src.persistence import (
     FeedbackRepository,
     PatternRepository,
     QCHistoryRepository,
     WorkflowStateRepository,
 )
+from src.persistence.database import init_db
 
 
 @pytest.fixture
@@ -262,6 +262,30 @@ async def test_feedback_repo_query_respects_limit(db_session: AsyncSession) -> N
 # ---------------------------------------------------------------------------
 # QCHistoryRepository — edge cases
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# BaseRepository — error handling
+# ---------------------------------------------------------------------------
+
+
+async def test_repository_error_on_closed_session() -> None:
+    """BaseRepository._flush raises RepositoryError on database errors."""
+    # Arrange
+    from unittest.mock import AsyncMock
+
+    from sqlalchemy.exc import OperationalError
+
+    from src.domain.exceptions import RepositoryError
+    from src.persistence.base_repo import BaseRepository
+
+    mock_session = AsyncMock()
+    mock_session.flush.side_effect = OperationalError("test", {}, Exception("connection lost"))
+    repo = BaseRepository(mock_session)
+
+    # Act & Assert
+    with pytest.raises(RepositoryError, match="Database operational error"):
+        await repo._flush()  # pyright: ignore[reportPrivateUsage]  # testing protected method directly
 
 
 async def test_qc_repo_stats_filtered_by_variable(db_session: AsyncSession) -> None:

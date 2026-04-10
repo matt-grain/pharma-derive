@@ -6,12 +6,6 @@ No LLM calls are made.
 
 from __future__ import annotations
 
-import os
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import pytest
-
 from src.agents.auditor import AuditorDeps, auditor_agent
 from src.agents.debugger import DebugAnalysis, debugger_agent
 from src.agents.derivation_coder import DerivationCode, coder_agent
@@ -96,11 +90,22 @@ def test_auditor_agent_has_no_tools() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _reset_caches() -> None:
+    """Clear both the LLM model cache and the settings lru_cache."""
+    from src.config.llm_gateway import reset_llm_cache
+    from src.config.settings import get_settings
+
+    reset_llm_cache()
+    get_settings.cache_clear()
+
+
 def test_llm_gateway_creates_correct_model() -> None:
     # Arrange
     from pydantic_ai.models.openai import OpenAIChatModel
 
-    from src.engine.llm_gateway import create_llm
+    from src.config.llm_gateway import create_llm
+
+    _reset_caches()
 
     # Act
     model = create_llm()
@@ -109,16 +114,14 @@ def test_llm_gateway_creates_correct_model() -> None:
     assert isinstance(model, OpenAIChatModel)
 
 
-def test_llm_gateway_reads_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_gateway_respects_explicit_params() -> None:
     # Arrange
-    monkeypatch.setenv("LLM_BASE_URL", "http://custom-host:9999/v1")
-    monkeypatch.setenv("LLM_MODEL", "my-custom-model")
-    monkeypatch.setenv("LLM_API_KEY", "secret-key")
+    from src.config.llm_gateway import create_llm
 
-    from src.engine.llm_gateway import create_llm
+    _reset_caches()
 
     # Act
-    model = create_llm()
+    model = create_llm(model_name="my-custom-model", base_url="http://custom:9999/v1", api_key="key")
 
     # Assert
     assert model.model_name == "my-custom-model"
@@ -126,18 +129,15 @@ def test_llm_gateway_reads_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_llm_gateway_default_model_name() -> None:
     # Arrange
-    from src.engine.llm_gateway import create_llm
+    from src.config.llm_gateway import create_llm
 
-    env_backup = os.environ.pop("LLM_MODEL", None)
-    try:
-        # Act
-        model = create_llm()
+    _reset_caches()
 
-        # Assert
-        assert model.model_name == "cdde-agent"
-    finally:
-        if env_backup is not None:
-            os.environ["LLM_MODEL"] = env_backup
+    # Act
+    model = create_llm()
+
+    # Assert — default from Settings
+    assert model.model_name == "cdde-agent"
 
 
 # ---------------------------------------------------------------------------
@@ -155,3 +155,18 @@ def test_spec_metadata_is_accessible_in_auditor_deps() -> None:
 
     # Assert
     assert deps.spec_metadata.study == "TEST_STUDY"
+
+
+# ---------------------------------------------------------------------------
+# Agent name tests
+# ---------------------------------------------------------------------------
+
+
+def test_all_agents_have_name_set() -> None:
+    """Every agent must have a name for audit trail metadata."""
+    # Act & Assert
+    assert auditor_agent.name == "auditor"
+    assert coder_agent.name == "coder"
+    assert qc_agent.name == "qc_programmer"
+    assert debugger_agent.name == "debugger"
+    assert spec_interpreter_agent.name == "spec_interpreter"

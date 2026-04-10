@@ -9,8 +9,9 @@ from pathlib import Path
 
 import streamlit as st
 
+from src.config.settings import get_settings
 from src.domain.models import QCVerdict, WorkflowStatus
-from src.engine.workflow_models import WorkflowResult
+from src.domain.workflow_models import WorkflowResult
 from src.ui.theme import inject_theme, result_row, score_card, status_badge
 
 
@@ -29,7 +30,7 @@ def render_workflow_page() -> None:
     # --- Configuration ---
     col1, col2 = st.columns(2)
     with col1:
-        llm_url = st.text_input("LLM Base URL", value="http://localhost:8650/v1")
+        llm_url = st.text_input("LLM Base URL", value=get_settings().llm_base_url)
     with col2:
         output_dir = st.text_input("Output Directory", value="output")
 

@@ -179,6 +179,20 @@ class DAGNode(BaseModel):
     approved_at: str | None = None
 
 
+class DerivationRunResult(BaseModel, frozen=True):
+    """Atomic result of running coder + QC + verify + debug for one variable."""
+
+    variable: str
+    status: DerivationStatus
+    coder_code: str | None = None
+    coder_approach: str | None = None
+    qc_code: str | None = None
+    qc_approach: str | None = None
+    qc_verdict: QCVerdict | None = None
+    approved_code: str | None = None
+    debug_analysis: str | None = None
+
+
 class AuditRecord(BaseModel, frozen=True):
     """Immutable audit trail entry."""
 

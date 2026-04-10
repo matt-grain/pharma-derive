@@ -1,5 +1,7 @@
 """Unit tests for DAG engine."""
 
+from __future__ import annotations
+
 import pytest
 
 from src.domain.dag import DerivationDAG
@@ -109,21 +111,73 @@ def test_dag_unknown_source_column_raises() -> None:
         DerivationDAG(rules, source_columns=set())
 
 
-def test_dag_update_node_status(
+def test_dag_node_fields_are_mutable(
     sample_rules: list[DerivationRule],
     sample_source_columns: set[str],
 ) -> None:
     # Arrange
     dag = DerivationDAG(sample_rules, sample_source_columns)
+    node = dag.get_node("AGE_GROUP")
 
     # Act
-    dag.update_node("AGE_GROUP", status=DerivationStatus.IN_PROGRESS)
+    node.status = DerivationStatus.IN_PROGRESS
 
     # Assert
     assert dag.get_node("AGE_GROUP").status == DerivationStatus.IN_PROGRESS
 
+
+def test_apply_run_result_updates_all_node_fields(
+    sample_rules: list[DerivationRule],
+    sample_source_columns: set[str],
+) -> None:
+    """apply_run_result atomically sets all fields from a DerivationRunResult."""
+    # Arrange
+    from src.domain.models import DerivationRunResult, QCVerdict
+
+    dag = DerivationDAG(sample_rules, sample_source_columns)
+    result = DerivationRunResult(
+        variable="AGE_GROUP",
+        status=DerivationStatus.APPROVED,
+        coder_code="pd.cut(df['age'], bins=[0,18,65,200])",
+        coder_approach="pd.cut",
+        qc_code="np.select(...)",
+        qc_approach="np.select",
+        qc_verdict=QCVerdict.MATCH,
+        approved_code="pd.cut(df['age'], bins=[0,18,65,200])",
+        debug_analysis=None,
+    )
+
     # Act
-    dag.update_node("AGE_GROUP", coder_code="df['age'].map(...)")
+    dag.apply_run_result(result)
 
     # Assert
-    assert dag.get_node("AGE_GROUP").coder_code == "df['age'].map(...)"
+    node = dag.get_node("AGE_GROUP")
+    assert node.status == DerivationStatus.APPROVED
+    assert node.coder_code == "pd.cut(df['age'], bins=[0,18,65,200])"
+    assert node.qc_verdict == QCVerdict.MATCH
+    assert node.approved_code == "pd.cut(df['age'], bins=[0,18,65,200])"
+
+
+def test_apply_run_result_partial_fields_preserves_existing(
+    sample_rules: list[DerivationRule],
+    sample_source_columns: set[str],
+) -> None:
+    """apply_run_result with None fields does not overwrite existing values."""
+    # Arrange
+    from src.domain.models import DerivationRunResult
+
+    dag = DerivationDAG(sample_rules, sample_source_columns)
+    dag.get_node("AGE_GROUP").coder_code = "existing_code"
+    result = DerivationRunResult(
+        variable="AGE_GROUP",
+        status=DerivationStatus.QC_MISMATCH,
+        coder_code=None,  # Should NOT overwrite "existing_code"
+    )
+
+    # Act
+    dag.apply_run_result(result)
+
+    # Assert
+    node = dag.get_node("AGE_GROUP")
+    assert node.status == DerivationStatus.QC_MISMATCH
+    assert node.coder_code == "existing_code"  # preserved

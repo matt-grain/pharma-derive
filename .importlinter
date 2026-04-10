@@ -130,7 +130,7 @@ forbidden_modules = src.persistence
 # TYPE_CHECKING-only import: present only for type annotations, never executed at runtime.
 # The contract spirit (no runtime coupling) is maintained — repos are injected via DI.
 ignore_imports =
-    src.engine.orchestrator -> src.persistence.repositories
+    src.engine.orchestrator -> src.persistence
 
 [importlinter:contract:verification-no-persistence]
 name = Verification cannot import from Persistence
@@ -173,7 +173,8 @@ name = UI cannot import Persistence directly
 type = forbidden
 source_modules = src.ui
 forbidden_modules = src.persistence
+# UI reaches persistence only through factory DI wiring, never directly
 ignore_imports =
-    src.engine.orchestrator -> src.persistence.repositories
     src.factory -> src.persistence.database
-    src.factory -> src.persistence.repositories
+    src.factory -> src.persistence
+    src.engine.orchestrator -> src.persistence

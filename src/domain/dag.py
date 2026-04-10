@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import networkx as nx
 
-from src.domain.models import DAGNode, DerivationRule, DerivationStatus
+from src.domain.exceptions import DAGError
+from src.domain.models import DAGNode, DerivationRule, DerivationRunResult
 
 
 class DerivationDAG:
@@ -57,7 +58,8 @@ class DerivationDAG:
         """Topological layers — variables in same layer have no mutual dependencies."""
         if self._layers is None:
             self._compute_layers()
-        assert self._layers is not None
+        if self._layers is None:
+            raise DAGError("Failed to compute topological layers")
         return list(self._layers)
 
     @property
@@ -69,8 +71,19 @@ class DerivationDAG:
         """Get node by variable name. Raises KeyError if not found."""
         return self._nodes[variable]
 
-    def update_node(self, variable: str, **kwargs: str | int | float | bool | DerivationStatus | None) -> None:
-        """Update node fields (status, code, verdict, etc.)."""
-        node = self._nodes[variable]
-        for key, value in kwargs.items():
-            setattr(node, key, value)
+    def apply_run_result(self, result: DerivationRunResult) -> None:
+        """Atomically update a DAG node from a derivation run result."""
+        node = self._nodes[result.variable]
+        node.status = result.status
+        for field in (
+            "coder_code",
+            "coder_approach",
+            "qc_code",
+            "qc_approach",
+            "qc_verdict",
+            "approved_code",
+            "debug_analysis",
+        ):
+            value = getattr(result, field)
+            if value is not None:
+                setattr(node, field, value)

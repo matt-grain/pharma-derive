@@ -1,9 +1,16 @@
 """Shared test fixtures for all tests."""
 
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from src.domain.dag import DerivationDAG
 
 from src.domain.models import (
     DerivationRule,
@@ -142,3 +149,14 @@ def sample_rules() -> list[DerivationRule]:
 def sample_source_columns() -> set[str]:
     """Return the set of source column names from the mock DataFrame."""
     return {"patient_id", "age", "treatment_start", "treatment_end", "group"}
+
+
+@pytest.fixture
+def sample_dag(
+    sample_rules: list[DerivationRule],
+    sample_source_columns: set[str],
+) -> DerivationDAG:
+    """Return a built DerivationDAG from the simple mock spec rules."""
+    from src.domain.dag import DerivationDAG
+
+    return DerivationDAG(sample_rules, sample_source_columns)

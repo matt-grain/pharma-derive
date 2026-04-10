@@ -20,6 +20,7 @@ class DerivationCode(BaseModel, frozen=True):
 
 coder_agent: Agent[CoderDeps, DerivationCode] = Agent(
     "test",  # overridden at call time via model= parameter
+    name="coder",
     output_type=DerivationCode,
     deps_type=CoderDeps,
     retries=3,

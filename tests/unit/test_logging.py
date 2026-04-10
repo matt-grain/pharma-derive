@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
-from src.engine.logging import setup_logging
+from src.config.logging import setup_logging
 
 
 def test_setup_logging_default_runs_without_error() -> None:

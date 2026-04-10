@@ -20,6 +20,7 @@ class AuditorDeps:
 
 auditor_agent: Agent[AuditorDeps, AuditSummary] = Agent(
     "test",  # overridden at call time via model= parameter
+    name="auditor",
     output_type=AuditSummary,
     deps_type=AuditorDeps,
     retries=3,

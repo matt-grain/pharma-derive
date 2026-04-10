@@ -5,26 +5,26 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 
 from src.agents.debugger import DebugAnalysis
 from src.agents.derivation_coder import DerivationCode
 from src.domain.dag import DerivationDAG
+from src.domain.exceptions import DerivationError
 from src.domain.executor import ExecutionResult
 from src.domain.models import (
     ConfidenceLevel,
     CorrectImplementation,
     DerivationRule,
+    DerivationRunResult,
     DerivationStatus,
     OutputDType,
     QCVerdict,
-    VerificationRecommendation,
 )
 from src.engine.derivation_runner import (
-    _apply_approved,  # pyright: ignore[reportPrivateUsage]  # testing private helpers
-    _apply_debug_fix,  # pyright: ignore[reportPrivateUsage]
+    _apply_series_to_df,  # pyright: ignore[reportPrivateUsage]  # testing private helper
     _resolve_approved_code,  # pyright: ignore[reportPrivateUsage]
 )
-from src.verification.comparator import VerificationResult
 
 
 def _make_coder(code: str = "df['age'] + 1") -> DerivationCode:
@@ -110,81 +110,89 @@ def test_resolve_approved_code_neither_returns_none() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _apply_approved
+# _apply_series_to_df
 # ---------------------------------------------------------------------------
 
 
-def test_apply_approved_adds_column_to_df() -> None:
-    """_apply_approved adds derived column to DataFrame and sets node to APPROVED."""
+def test_apply_series_to_df_adds_column_to_dataframe() -> None:
+    """_apply_series_to_df deserializes series_json and adds column to DataFrame."""
+    # Arrange
+    derived_df = pd.DataFrame({"age": [10, 20, 30]})
+    series = pd.Series([1, 2, 3], name="TEST_VAR")
+    exec_result = ExecutionResult(success=True, series_json=series.to_json(), dtype="int64")
+
+    # Act
+    _apply_series_to_df("TEST_VAR", exec_result, derived_df)
+
+    # Assert
+    assert "TEST_VAR" in derived_df.columns
+    assert list(derived_df["TEST_VAR"]) == [1, 2, 3]
+
+
+def test_apply_series_to_df_raises_derivation_error_on_missing_json() -> None:
+    """_apply_series_to_df raises DerivationError when series_json is None."""
+    # Arrange
+    derived_df = pd.DataFrame({"age": [10, 20, 30]})
+    exec_result = ExecutionResult(success=False, series_json=None, error="failed")
+
+    # Act & Assert
+    with pytest.raises(DerivationError, match="TEST_VAR"):
+        _apply_series_to_df("TEST_VAR", exec_result, derived_df)
+
+
+# ---------------------------------------------------------------------------
+# dag.apply_run_result — integration with runner output model
+# ---------------------------------------------------------------------------
+
+
+def test_apply_run_result_approved_sets_node_state() -> None:
+    """DerivationRunResult with APPROVED status correctly updates the DAG node."""
     # Arrange
     rules = [
         DerivationRule(variable="TEST_VAR", source_columns=["age"], logic="test", output_type=OutputDType.INT),
     ]
     dag = DerivationDAG(rules, source_columns={"age"})
-    derived_df = pd.DataFrame({"age": [10, 20, 30]})
-
-    series = pd.Series([1, 2, 3], name="TEST_VAR")
-    series_json = series.to_json()
-
-    primary_result = ExecutionResult(success=True, series_json=series_json, dtype="int64")
-    qc_result = ExecutionResult(success=True, series_json=series_json, dtype="int64")
-    vr = VerificationResult(
+    result = DerivationRunResult(
         variable="TEST_VAR",
-        verdict=QCVerdict.MATCH,
-        primary_result=primary_result,
-        qc_result=qc_result,
-        recommendation=VerificationRecommendation.AUTO_APPROVE,
+        status=DerivationStatus.APPROVED,
+        coder_code="df['age'] + 1",
+        coder_approach="add",
+        qc_code="df['age'].add(1)",
+        qc_approach="add method",
+        qc_verdict=QCVerdict.MATCH,
+        approved_code="df['age'] + 1",
     )
 
     # Act
-    _apply_approved("TEST_VAR", dag, derived_df, vr)
+    dag.apply_run_result(result)
 
     # Assert
-    assert "TEST_VAR" in derived_df.columns
-    assert dag.get_node("TEST_VAR").status == DerivationStatus.APPROVED
-
-
-# ---------------------------------------------------------------------------
-# _apply_debug_fix
-# ---------------------------------------------------------------------------
+    node = dag.get_node("TEST_VAR")
+    assert node.status == DerivationStatus.APPROVED
+    assert node.approved_code == "df['age'] + 1"
+    assert node.qc_verdict == QCVerdict.MATCH
 
 
 @patch("src.engine.derivation_runner.execute_derivation")
-def test_apply_debug_fix_success_approves_node(mock_exec: MagicMock) -> None:
-    """Successful debug fix execution marks node APPROVED and adds column."""
-    # Arrange
-    rules = [
-        DerivationRule(variable="FIX_VAR", source_columns=["age"], logic="test", output_type=OutputDType.INT),
-    ]
-    dag = DerivationDAG(rules, source_columns={"age"})
-    derived_df = pd.DataFrame({"age": [10, 20, 30]})
-
-    series = pd.Series([100, 200, 300], name="FIX_VAR")
-    mock_exec.return_value = ExecutionResult(success=True, series_json=series.to_json(), dtype="int64")
-
-    # Act
-    _apply_debug_fix("FIX_VAR", dag, derived_df, "df['age'] * 10")
-
-    # Assert
-    assert dag.get_node("FIX_VAR").status == DerivationStatus.APPROVED
-    assert "FIX_VAR" in derived_df.columns
-
-
-@patch("src.engine.derivation_runner.execute_derivation")
-def test_apply_debug_fix_failure_marks_mismatch(mock_exec: MagicMock) -> None:
-    """Failed debug fix execution marks node QC_MISMATCH."""
+def test_apply_run_result_mismatch_after_failed_fix(mock_exec: MagicMock) -> None:
+    """QC_MISMATCH result is applied when debug fix execution fails."""
     # Arrange
     rules = [
         DerivationRule(variable="FAIL_VAR", source_columns=["age"], logic="test", output_type=OutputDType.INT),
     ]
     dag = DerivationDAG(rules, source_columns={"age"})
-    derived_df = pd.DataFrame({"age": [10, 20, 30]})
-
     mock_exec.return_value = ExecutionResult(success=False, error="syntax error")
 
+    result = DerivationRunResult(
+        variable="FAIL_VAR",
+        status=DerivationStatus.QC_MISMATCH,
+        coder_code="bad code",
+        qc_code="other bad code",
+        qc_verdict=QCVerdict.MISMATCH,
+    )
+
     # Act
-    _apply_debug_fix("FAIL_VAR", dag, derived_df, "bad code")
+    dag.apply_run_result(result)
 
     # Assert
     assert dag.get_node("FAIL_VAR").status == DerivationStatus.QC_MISMATCH
-    assert "FAIL_VAR" not in derived_df.columns

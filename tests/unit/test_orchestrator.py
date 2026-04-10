@@ -12,13 +12,13 @@ from src.domain.dag import DerivationDAG
 from src.domain.models import WorkflowStatus
 from src.domain.source_loader import get_source_columns
 from src.domain.spec_parser import parse_spec
+from src.domain.workflow_models import WorkflowState
 from src.engine.orchestrator import DerivationOrchestrator
-from src.engine.workflow_models import WorkflowState
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from src.engine.workflow_fsm import WorkflowFSM
+    from src.domain.workflow_fsm import WorkflowFSM
 
 _MINIMAL_CSV = "patient_id,age,treatment_start,treatment_end,group\nP001,72,2024-01-15,2024-06-20,treatment\n"
 

@@ -463,43 +463,65 @@ homework/
 ├── specs/                     # Transformation specs (YAML)
 ├── src/
 │   ├── __init__.py
-│   ├── domain/                # Pure domain: models, DAG, spec parsing, code execution
+│   ├── factory.py                 # DI factory for orchestrator
+│   ├── config/                    # Infrastructure configuration
 │   │   ├── __init__.py
-│   │   ├── models.py          # DerivationRule, DAGNode, AuditRecord, etc.
-│   │   ├── dag.py             # DAG construction, topological sort
-│   │   ├── spec_parser.py     # YAML spec → DerivationRule objects
-│   │   └── executor.py        # Safe code execution + result comparison
-│   ├── agents/                # PydanticAI agent definitions
+│   │   ├── constants.py           # Shared defaults (DATABASE_URL, LLM_BASE_URL)
+│   │   ├── llm_gateway.py         # LLM model construction (AgentLens proxy)
+│   │   └── logging.py             # loguru configuration
+│   ├── domain/                    # Pure domain: models, DAG, FSM, spec parsing
 │   │   ├── __init__.py
-│   │   ├── tools.py           # Shared tools: inspect_data, execute_code
+│   │   ├── models.py              # DerivationRule, DAGNode, DerivationRunResult, etc.
+│   │   ├── exceptions.py          # CDDEError, WorkflowStateError, DerivationError, etc.
+│   │   ├── dag.py                 # DAG construction, topological sort, apply_run_result
+│   │   ├── spec_parser.py         # YAML spec → DerivationRule objects
+│   │   ├── executor.py            # Safe code execution + result comparison
+│   │   ├── source_loader.py       # CSV/XPT file loading
+│   │   ├── synthetic.py           # Privacy-safe synthetic data generation
+│   │   ├── workflow_fsm.py        # Workflow state machine (python-statemachine)
+│   │   └── workflow_models.py     # WorkflowState, WorkflowResult
+│   ├── agents/                    # PydanticAI agent definitions
+│   │   ├── __init__.py
+│   │   ├── deps.py                # Shared CoderDeps dependency container
+│   │   ├── tools/                 # Agent tools (split by responsibility)
+│   │   │   ├── __init__.py        # Re-exports: inspect_data, execute_code
+│   │   │   ├── sandbox.py         # Safe builtins, blocked tokens, namespace builder
+│   │   │   ├── inspect_data.py    # Data inspection tool (schema, nulls, ranges)
+│   │   │   ├── execute_code.py    # Sandboxed code execution tool
+│   │   │   └── tracing.py         # @traced_tool decorator for observability
 │   │   ├── spec_interpreter.py
 │   │   ├── derivation_coder.py
 │   │   ├── qc_programmer.py
 │   │   ├── debugger.py
 │   │   └── auditor.py
-│   ├── engine/                # Orchestration layer
+│   ├── engine/                    # Orchestration layer
 │   │   ├── __init__.py
-│   │   ├── orchestrator.py    # Workflow FSM, agent dispatch
-│   │   ├── llm_gateway.py     # LLM abstraction (AgentLens mailbox)
-│   │   └── logging.py         # loguru configuration
-│   ├── verification/          # QC / double programming
+│   │   ├── orchestrator.py        # Workflow controller, agent dispatch
+│   │   └── derivation_runner.py   # Per-variable coder+QC+verify+debug loop
+│   ├── verification/              # QC / double programming
 │   │   ├── __init__.py
-│   │   └── comparator.py      # Compare primary vs QC outputs, AST similarity
-│   ├── audit/                 # Traceability
+│   │   └── comparator.py
+│   ├── audit/                     # Traceability
 │   │   ├── __init__.py
-│   │   └── trail.py           # Audit trail management + JSON export
-│   ├── memory/                # Short-term + long-term memory
-│   │   ├── __init__.py
-│   │   ├── short_term.py      # Workflow state (JSON per run)
-│   │   └── long_term.py       # Validated patterns (SQLite)
-│   └── ui/                    # Streamlit HITL
+│   │   └── trail.py
+│   ├── persistence/               # Database layer
+│   │   ├── __init__.py            # Re-exports all repos
+│   │   ├── database.py            # Engine + session factory
+│   │   ├── orm_models.py          # SQLAlchemy table definitions
+│   │   ├── base_repo.py           # BaseRepository with error wrapping
+│   │   ├── pattern_repo.py        # PatternRepository
+│   │   ├── feedback_repo.py       # FeedbackRepository
+│   │   ├── qc_history_repo.py     # QCHistoryRepository
+│   │   └── workflow_state_repo.py # WorkflowStateRepository
+│   └── ui/                        # Streamlit HITL
 │       ├── __init__.py
-│       ├── app.py             # Main entry point
-│       └── pages/             # Streamlit multi-page
-│           ├── 1_spec_review.py
-│           ├── 2_derivation_review.py
-│           ├── 3_qc_results.py
-│           └── 4_audit_trail.py
+│       ├── app.py
+│       ├── theme.py
+│       ├── components/
+│       │   └── dag_view.py
+│       └── pages/
+│           ├── audit.py
+│           └── workflow.py
 ├── tests/
 │   ├── conftest.py
 │   ├── unit/
@@ -519,9 +541,14 @@ homework/
 
 ## Layer Responsibilities
 
+### config/ — Infrastructure Configuration
+- **Does:** Configure LLM gateway, logging, shared constants
+- **Must NOT:** Contain business logic or domain models
+- **Depends on:** Nothing (leaf layer)
+
 ### domain/ — Pure Domain Logic
 - **Does:** Define data models, build DAGs, parse specs, execute derivation functions
-- **Must NOT:** Import PydanticAI, Streamlit, SQLite, or any infrastructure package
+- **Must NOT:** Import PydanticAI, Streamlit, SQLAlchemy, or any infrastructure package
 - **Pattern:** All derivations are pure functions `(DataFrame, params) -> Series`
 
 ### agents/ — AI Agent Definitions
@@ -530,9 +557,9 @@ homework/
 - **Depends on:** domain/
 
 ### engine/ — Orchestration
-- **Does:** Run the workflow FSM, dispatch agents in DAG order, manage LLM calls, wire memory and audit
+- **Does:** Run the workflow FSM, dispatch agents in DAG order, coordinate persistence and audit
 - **Must NOT:** Define domain models or render UI
-- **Depends on:** domain/, agents/, memory/, audit/
+- **Depends on:** domain/, agents/, persistence/, audit/
 
 ### verification/ — QC & Double Programming
 - **Does:** Compare primary vs QC outputs, generate discrepancy reports
@@ -544,10 +571,10 @@ homework/
 - **Must NOT:** Make derivation decisions
 - **Depends on:** domain/
 
-### memory/ — State Management
-- **Does:** Persist workflow state (short-term) and validated patterns (long-term)
-- **Must NOT:** Contain business logic
-- **Depends on:** domain/
+### persistence/ — Database Layer
+- **Does:** Encapsulate all DB queries; store/retrieve patterns, feedback, QC history, workflow state
+- **Must NOT:** Contain business logic or domain decisions
+- **Depends on:** domain/ (for Pydantic models returned to callers)
 
 ### ui/ — Human-in-the-Loop Interface
 - **Does:** Render Streamlit pages, capture human approvals, display results

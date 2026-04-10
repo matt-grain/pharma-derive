@@ -14,7 +14,10 @@ from loguru import logger
 
 from src.agents.auditor import AuditorDeps, auditor_agent
 from src.audit.trail import AuditTrail
+from src.config.llm_gateway import create_llm
+from src.config.settings import get_settings
 from src.domain.dag import DerivationDAG
+from src.domain.exceptions import CDDEError, WorkflowStateError
 from src.domain.models import (
     AgentName,
     AuditAction,
@@ -25,13 +28,12 @@ from src.domain.models import (
 from src.domain.source_loader import get_source_columns, load_source_data
 from src.domain.spec_parser import parse_spec
 from src.domain.synthetic import generate_synthetic
+from src.domain.workflow_fsm import WorkflowFSM
+from src.domain.workflow_models import WorkflowResult, WorkflowState
 from src.engine.derivation_runner import run_variable
-from src.engine.llm_gateway import create_llm
-from src.engine.workflow_fsm import WorkflowFSM
-from src.engine.workflow_models import WorkflowResult, WorkflowState
 
 if TYPE_CHECKING:
-    from src.persistence.repositories import (
+    from src.persistence import (
         PatternRepository,
         QCHistoryRepository,
         WorkflowStateRepository,
@@ -44,14 +46,14 @@ class DerivationOrchestrator:
     def __init__(
         self,
         spec_path: str | Path,
-        llm_base_url: str = "http://localhost:8650/v1",
+        llm_base_url: str | None = None,
         pattern_repo: PatternRepository | None = None,
         qc_repo: QCHistoryRepository | None = None,
         state_repo: WorkflowStateRepository | None = None,
         output_dir: Path | None = None,
     ) -> None:
         self._spec_path = Path(spec_path)
-        self._llm_base_url = llm_base_url
+        self._llm_base_url = llm_base_url or get_settings().llm_base_url
         self._pattern_repo = pattern_repo
         self._qc_repo = qc_repo
         self._state_repo = state_repo
@@ -77,16 +79,25 @@ class DerivationOrchestrator:
         start = time.perf_counter()
         self._state.started_at = datetime.now(UTC).isoformat()
 
+        source_cols: list[str] = []
         try:
             await self._step_spec_review()
             await self._step_build_dag()
+            # Snapshot source columns so we can roll back partial derivations on failure
+            source_cols = list(self._state.derived_df.columns) if self._state.derived_df is not None else []
             await self._step_derive_all()
             self._fsm.finish_review_from_verify()
             await self._step_audit()
             self._fsm.finish()
-        except Exception as exc:
-            logger.exception("Workflow {wf_id} failed: {err}", wf_id=self._state.workflow_id, err=exc)
+        except CDDEError as exc:
+            logger.error("Workflow {wf_id} failed: {err}", wf_id=self._state.workflow_id, err=exc)
             self._state.errors.append(str(exc))
+            self._rollback_derived_columns(source_cols)
+            self._fsm.fail(str(exc))
+        except Exception as exc:
+            logger.exception("Workflow {wf_id} unexpected error", wf_id=self._state.workflow_id)
+            self._state.errors.append(f"Unexpected: {exc}")
+            self._rollback_derived_columns(source_cols)
             self._fsm.fail(str(exc))
 
         await self._persist_state()
@@ -97,6 +108,15 @@ class DerivationOrchestrator:
             self._audit_trail.to_json(self._output_dir / f"{self._state.workflow_id}_audit.json")
 
         return result
+
+    def _rollback_derived_columns(self, source_cols: list[str]) -> None:
+        """Drop any columns added during derivation to prevent partial state leaking."""
+        if self._state.derived_df is None or not source_cols:
+            return
+        added = [c for c in self._state.derived_df.columns if c not in source_cols]
+        if added:
+            logger.warning("Rolling back {n} partial derivations: {cols}", n=len(added), cols=added)
+            self._state.derived_df.drop(columns=added, inplace=True)
 
     async def _persist_state(self) -> None:
         """Persist final workflow state to long-term memory."""
@@ -129,8 +149,10 @@ class DerivationOrchestrator:
         self._fsm.finish_spec_review()
 
     async def _step_build_dag(self) -> None:
-        assert self._state.spec is not None
-        assert self._state.derived_df is not None
+        if self._state.spec is None:
+            raise WorkflowStateError("spec", "build_dag")
+        if self._state.derived_df is None:
+            raise WorkflowStateError("derived_df", "build_dag")
         self._fsm.start_deriving()
         self._state.dag = DerivationDAG(
             self._state.spec.derivations,
@@ -138,7 +160,8 @@ class DerivationOrchestrator:
         )
 
     async def _step_derive_all(self) -> None:
-        assert self._state.dag is not None
+        if self._state.dag is None:
+            raise WorkflowStateError("dag", "derive_all")
         layers = self._state.dag.layers
         for idx, layer in enumerate(layers):
             self._fsm.start_verifying()
@@ -147,8 +170,10 @@ class DerivationOrchestrator:
                 self._fsm.next_variable()
 
     async def _derive_variable(self, variable: str) -> None:
-        assert self._state.dag is not None
-        assert self._state.derived_df is not None
+        if self._state.dag is None:
+            raise WorkflowStateError("dag", "derive_variable")
+        if self._state.derived_df is None:
+            raise WorkflowStateError("derived_df", "derive_variable")
         await run_variable(
             variable=variable,
             dag=self._state.dag,
@@ -160,7 +185,8 @@ class DerivationOrchestrator:
 
     async def _record_derivation_outcome(self, variable: str) -> None:
         """Record an audit entry and persist QC/pattern data for a derivation outcome."""
-        assert self._state.dag is not None
+        if self._state.dag is None:
+            raise WorkflowStateError("dag", "record_outcome")
         node = self._state.dag.get_node(variable)
         self._audit_trail.record(
             variable=variable,
@@ -193,8 +219,10 @@ class DerivationOrchestrator:
             )
 
     async def _step_audit(self) -> None:
-        assert self._state.dag is not None
-        assert self._state.spec is not None
+        if self._state.dag is None:
+            raise WorkflowStateError("dag", "audit")
+        if self._state.spec is None:
+            raise WorkflowStateError("spec", "audit")
         self._fsm.start_auditing()
         dag_lines = [f"{v}: {self._state.dag.get_node(v).status}" for v in self._state.dag.execution_order]
         llm = create_llm(base_url=self._llm_base_url)
@@ -211,7 +239,7 @@ class DerivationOrchestrator:
         self._audit_trail.record(
             variable="",
             action=AuditAction.AUDIT_COMPLETE,
-            agent=AgentName.AUDITOR,
+            agent=auditor_agent.name or "auditor",
             details={"auto_approved": str(result.output.auto_approved)},
         )
 

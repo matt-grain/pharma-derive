@@ -37,6 +37,7 @@ class DebuggerDeps:
 
 debugger_agent: Agent[DebuggerDeps, DebugAnalysis] = Agent(
     "test",  # overridden at call time via model= parameter
+    name="debugger",
     output_type=DebugAnalysis,
     deps_type=DebuggerDeps,
     retries=3,

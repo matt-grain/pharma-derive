@@ -21,6 +21,42 @@
 | 8 | Design Document + Presentation | ✅ Complete | — |
 | 9 | Docker Compose + README | ✅ Complete | — |
 
+## Phase 10 — Production Hardening Refactor
+
+**Date:** 2026-04-10
+**Features:** 9 refactoring items + quality quick wins
+**Sub-phases:** 3
+**Agent:** `python-fastapi` (all sub-phases)
+**Baseline:** 148 tests passing, all lint/typecheck clean
+
+### Motivation
+
+The Sanofi homework evaluators explicitly grade on:
+- **§9.7 Implementation Quality** — code structure, modularity, readability
+- **§11.C Reliability** — failure modes, error propagation
+- **§10.D Workflow Orchestration** — failure handling
+
+Current codebase has PoC shortcuts (asserts as guards, zero DB error handling, fragile manual DAG updates, misplaced modules) that directly cost points.
+
+### Sub-Phase Summary
+
+| Sub-Phase | Title | Files Changed | Dependencies |
+|-----------|-------|--------------|-------------|
+| 10.1 | Foundation — New Types + Module Restructure | ~25 new/moved | None |
+| 10.2 | Wiring — Use New Structures | ~15 modified | 10.1 |
+| 10.3 | Polish — Quality Quick Wins | ~12 modified | 10.2 |
+
+### Cross-Phase Dependencies
+
+- **10.1 → 10.2:** Phase 10.1 creates domain exceptions, `DerivationRunResult`, `BaseRepository`, `src/config/`, `src/agents/tools/` package. Phase 10.2 wires these into existing modules.
+- **10.2 → 10.3:** Phase 10.2 stabilizes all imports and behavior. Phase 10.3 adds docstrings, type hints, and config cleanup on the stabilized code.
+
+### Per-Phase Plan Files
+
+- `IMPLEMENTATION_PLAN_PHASE_10_1.md` — Foundation
+- `IMPLEMENTATION_PLAN_PHASE_10_2.md` — Wiring
+- `IMPLEMENTATION_PLAN_PHASE_10_3.md` — Polish
+
 ## Final Metrics
 
 - **148 tests** | **89% coverage** | **19 import contracts** | **18 pre-push hooks**

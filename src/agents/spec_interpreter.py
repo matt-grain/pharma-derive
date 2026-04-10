@@ -28,6 +28,7 @@ class SpecInterpreterDeps:
 
 spec_interpreter_agent: Agent[SpecInterpreterDeps, SpecInterpretation] = Agent(
     "test",  # overridden at call time via model= parameter
+    name="spec_interpreter",
     output_type=SpecInterpretation,
     deps_type=SpecInterpreterDeps,
     retries=3,

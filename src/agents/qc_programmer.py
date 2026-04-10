@@ -10,6 +10,7 @@ from src.agents.tools import execute_code, inspect_data
 
 qc_agent: Agent[CoderDeps, DerivationCode] = Agent(
     "test",  # overridden at call time via model= parameter
+    name="qc_programmer",
     output_type=DerivationCode,
     deps_type=CoderDeps,
     retries=3,

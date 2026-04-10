@@ -17,9 +17,10 @@ from src.agents.debugger import DebugAnalysis, DebuggerDeps, debugger_agent
 from src.agents.deps import CoderDeps
 from src.agents.derivation_coder import DerivationCode, coder_agent
 from src.agents.qc_programmer import qc_agent
-from src.domain.executor import execute_derivation
-from src.domain.models import CorrectImplementation, DerivationStatus, QCVerdict
-from src.engine.llm_gateway import create_llm
+from src.config.llm_gateway import create_llm
+from src.domain.exceptions import DerivationError
+from src.domain.executor import ExecutionResult, execute_derivation
+from src.domain.models import CorrectImplementation, DerivationRunResult, DerivationStatus, QCVerdict
 from src.verification.comparator import VerificationResult, verify_derivation
 
 if TYPE_CHECKING:
@@ -37,6 +38,17 @@ class DebugContext:
     llm_base_url: str
 
 
+def _apply_series_to_df(variable: str, exec_result: ExecutionResult, derived_df: pd.DataFrame) -> None:
+    """Deserialize approved series and add to working DataFrame."""
+    if exec_result.series_json is None:
+        raise DerivationError(variable, "Execution produced no result data")
+    series: pd.Series[object] = pd.read_json(  # type: ignore[assignment]  # pandas stubs type as DataFrame|Series
+        StringIO(exec_result.series_json),
+        typ="series",
+    )
+    derived_df[variable] = series
+
+
 async def run_variable(
     variable: str,
     dag: DerivationDAG,
@@ -46,28 +58,60 @@ async def run_variable(
 ) -> None:
     """Run coder + QC in parallel, verify, and debug if needed. Mutates dag and derived_df."""
     node = dag.get_node(variable)
-    dag.update_node(variable, status=DerivationStatus.IN_PROGRESS)
     available = list(derived_df.columns)
 
     coder, qc_code = await _run_coder_and_qc(node.rule, derived_df, synthetic_csv, available, llm_base_url)
-    dag.update_node(variable, coder_code=coder.python_code, qc_code=qc_code.python_code)
-
     vr = verify_derivation(variable, coder.python_code, qc_code.python_code, derived_df, available)
 
     if vr.verdict == QCVerdict.MATCH:
-        _apply_approved(variable, dag, derived_df, vr)
+        result = DerivationRunResult(
+            variable=variable,
+            status=DerivationStatus.APPROVED,
+            coder_code=coder.python_code,
+            coder_approach=coder.approach,
+            qc_code=qc_code.python_code,
+            qc_approach=qc_code.approach,
+            qc_verdict=vr.verdict,
+            approved_code=coder.python_code,
+        )
+        dag.apply_run_result(result)
+        _apply_series_to_df(variable, vr.primary_result, derived_df)
         return
 
     ctx = DebugContext(variable=variable, coder=coder, qc_code=qc_code, llm_base_url=llm_base_url)
     analysis = await _debug_variable(ctx, dag, derived_df, vr)
-    dag.update_node(variable, debug_analysis=analysis.root_cause, qc_verdict=vr.verdict)
-
-    # Apply the debugger's recommended code (or suggested fix) to derived_df
     approved_code = _resolve_approved_code(analysis, coder, qc_code)
+
     if approved_code:
-        _apply_debug_fix(variable, dag, derived_df, approved_code)
-    else:
-        dag.update_node(variable, status=DerivationStatus.QC_MISMATCH)
+        exec_result = execute_derivation(derived_df, approved_code, list(derived_df.columns))
+        if exec_result.success and exec_result.series_json:
+            result = DerivationRunResult(
+                variable=variable,
+                status=DerivationStatus.APPROVED,
+                coder_code=coder.python_code,
+                coder_approach=coder.approach,
+                qc_code=qc_code.python_code,
+                qc_approach=qc_code.approach,
+                qc_verdict=vr.verdict,
+                approved_code=approved_code,
+                debug_analysis=analysis.root_cause,
+            )
+            dag.apply_run_result(result)
+            _apply_series_to_df(variable, exec_result, derived_df)
+            return
+
+    # Mismatch — no approved code or execution failed
+    result = DerivationRunResult(
+        variable=variable,
+        status=DerivationStatus.QC_MISMATCH,
+        coder_code=coder.python_code,
+        coder_approach=coder.approach,
+        qc_code=qc_code.python_code,
+        qc_approach=qc_code.approach,
+        qc_verdict=vr.verdict,
+        debug_analysis=analysis.root_cause,
+    )
+    dag.apply_run_result(result)
 
 
 async def _run_coder_and_qc(
@@ -87,26 +131,6 @@ async def _run_coder_and_qc(
     return coder_out.output, qc_out.output
 
 
-def _apply_approved(
-    variable: str,
-    dag: DerivationDAG,
-    derived_df: pd.DataFrame,
-    vr: VerificationResult,
-) -> None:
-    """Mark node approved and add derived column to the working DataFrame."""
-    dag.update_node(
-        variable,
-        qc_verdict=vr.verdict,
-        status=DerivationStatus.APPROVED,
-        approved_code=dag.get_node(variable).coder_code,
-    )
-    approved_series: pd.Series[object] = pd.read_json(  # type: ignore[assignment]
-        StringIO(vr.primary_result.series_json),  # type: ignore[arg-type]
-        typ="series",
-    )
-    derived_df[variable] = approved_series
-
-
 def _resolve_approved_code(
     analysis: DebugAnalysis,
     coder: DerivationCode,
@@ -120,25 +144,6 @@ def _resolve_approved_code(
     if analysis.correct_implementation == CorrectImplementation.QC:
         return qc_code.python_code
     return None
-
-
-def _apply_debug_fix(
-    variable: str,
-    dag: DerivationDAG,
-    derived_df: pd.DataFrame,
-    approved_code: str,
-) -> None:
-    """Execute debugger-approved code and add column to derived_df."""
-    result = execute_derivation(derived_df, approved_code, list(derived_df.columns))
-    if result.success and result.series_json:
-        approved_series: pd.Series[object] = pd.read_json(  # type: ignore[assignment]
-            StringIO(result.series_json),  # type: ignore[arg-type]
-            typ="series",
-        )
-        derived_df[variable] = approved_series
-        dag.update_node(variable, approved_code=approved_code, status=DerivationStatus.APPROVED)
-    else:
-        dag.update_node(variable, status=DerivationStatus.QC_MISMATCH)
 
 
 async def _debug_variable(
