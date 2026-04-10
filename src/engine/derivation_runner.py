@@ -94,7 +94,12 @@ def _apply_approved(
     vr: VerificationResult,
 ) -> None:
     """Mark node approved and add derived column to the working DataFrame."""
-    dag.update_node(variable, qc_verdict=vr.verdict, status=DerivationStatus.APPROVED)
+    dag.update_node(
+        variable,
+        qc_verdict=vr.verdict,
+        status=DerivationStatus.APPROVED,
+        approved_code=dag.get_node(variable).coder_code,
+    )
     approved_series: pd.Series[object] = pd.read_json(  # type: ignore[assignment]
         StringIO(vr.primary_result.series_json),  # type: ignore[arg-type]
         typ="series",

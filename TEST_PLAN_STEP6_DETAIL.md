@@ -16,15 +16,19 @@ cd C:\Projects\Interviews\jobs\Sanofi-AI-ML-Lead\homework
 uv run python -c "
 import asyncio
 from pathlib import Path
-from src.engine.orchestrator import DerivationOrchestrator
+from src.factory import create_orchestrator
 
 async def main():
-    orchestrator = DerivationOrchestrator(
+    orch, session = await create_orchestrator(
         spec_path='specs/simple_mock.yaml',
         llm_base_url='http://localhost:8650/v1',
         output_dir=Path('output'),
     )
-    result = await orchestrator.run()
+    try:
+        result = await orch.run()
+        await session.commit()
+    finally:
+        await session.close()
     print(f'Status: {result.status}')
     print(f'Derived: {result.derived_variables}')
     print(f'QC: {result.qc_summary}')

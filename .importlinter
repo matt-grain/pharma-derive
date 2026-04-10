@@ -175,3 +175,5 @@ source_modules = src.ui
 forbidden_modules = src.persistence
 ignore_imports =
     src.engine.orchestrator -> src.persistence.repositories
+    src.factory -> src.persistence.database
+    src.factory -> src.persistence.repositories

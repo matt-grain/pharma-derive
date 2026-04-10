@@ -10,7 +10,6 @@ from pathlib import Path
 import streamlit as st
 
 from src.domain.models import QCVerdict, WorkflowStatus
-from src.engine.orchestrator import DerivationOrchestrator
 from src.engine.workflow_models import WorkflowResult
 from src.ui.theme import inject_theme, result_row, score_card, status_badge
 
@@ -54,9 +53,20 @@ def render_workflow_page() -> None:
 
 
 async def _run_workflow(spec_path: str, llm_url: str, output_dir: Path) -> WorkflowResult:
-    """Run the orchestrator and return the result."""
-    orch = DerivationOrchestrator(spec_path=spec_path, llm_base_url=llm_url, output_dir=output_dir)
-    return await orch.run()
+    """Run the orchestrator with SQLite persistence."""
+    from src.factory import create_orchestrator
+
+    orch, session = await create_orchestrator(
+        spec_path=spec_path,
+        llm_base_url=llm_url,
+        output_dir=output_dir,
+    )
+    try:
+        result = await orch.run()
+        await session.commit()
+        return result
+    finally:
+        await session.close()
 
 
 def _render_results(result: WorkflowResult) -> None:

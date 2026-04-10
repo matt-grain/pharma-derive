@@ -56,3 +56,8 @@ asyncio_mode = "auto"
 
 [tool.coverage.run]
 omit = ["src/ui/*"]  # Streamlit pages are integration-tested manually, not unit-testable
+
+[dependency-groups]
+dev = [
+    "pydot>=4.0.1",
+]

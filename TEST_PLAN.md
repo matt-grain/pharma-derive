@@ -507,16 +507,19 @@ AST similarity is low (0.18) because `pd.cut` vs `apply(lambda)` are structurall
 uv run python -c "
 import asyncio
 from pathlib import Path
-from src.engine.orchestrator import DerivationOrchestrator
+from src.engine.factory import create_orchestrator
 
 async def main():
-    orchestrator = DerivationOrchestrator(
+    orch, session = await create_orchestrator(
         spec_path='specs/simple_mock.yaml',
         llm_base_url='http://localhost:8650/v1',
         output_dir=Path('output'),
     )
-    result = await orchestrator.run()
-
+    try:
+        result = await orch.run()
+        await session.commit()
+    finally:
+        await session.close()
     print(f'Status: {result.status}')
     print(f'Study: {result.study}')
     print(f'Derived variables: {result.derived_variables}')
@@ -524,7 +527,6 @@ async def main():
     print(f'Errors: {result.errors}')
     print(f'Duration: {result.duration_seconds:.1f}s')
     print(f'Audit records: {len(result.audit_records)}')
-
     if result.audit_summary:
         print(f'\nAudit summary:')
         print(f'  Auto-approved: {result.audit_summary.auto_approved}')
@@ -549,7 +551,7 @@ Audit records: ~20-30
 **Verify afterward:**
 ```bash
 # Check audit trail was exported
-cat output/audit_trail.json | python -m json.tool | head -30
+cat output/{id}_auditl.json | python -m json.tool | head -30
 
 # Check SQLite database was populated (if repos were wired)
 uv run python -c "

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,7 +18,6 @@ from src.domain.dag import DerivationDAG
 from src.domain.models import (
     AgentName,
     AuditAction,
-    AuditRecord,
     DerivationStatus,
     WorkflowStatus,
     WorkflowStep,
@@ -89,6 +89,7 @@ class DerivationOrchestrator:
             self._state.errors.append(str(exc))
             self._fsm.fail(str(exc))
 
+        await self._persist_state()
         self._state.completed_at = datetime.now(UTC).isoformat()
         result = self._build_result(time.perf_counter() - start)
 
@@ -96,6 +97,25 @@ class DerivationOrchestrator:
             self._audit_trail.to_json(self._output_dir / f"{self._state.workflow_id}_audit.json")
 
         return result
+
+    async def _persist_state(self) -> None:
+        """Persist final workflow state to long-term memory."""
+        if self._state_repo is None:
+            return
+        fsm_state = str(self._fsm.current_state_value or "unknown")
+        state_json = json.dumps(
+            {
+                "workflow_id": self._state.workflow_id,
+                "status": fsm_state,
+                "derived_variables": list(self._state.dag.nodes if self._state.dag else {}),
+                "errors": self._state.errors,
+            }
+        )
+        await self._state_repo.save(
+            workflow_id=self._state.workflow_id,
+            state_json=state_json,
+            fsm_state=fsm_state,
+        )
 
     async def _step_spec_review(self) -> None:
         self._fsm.start_spec_review()
@@ -136,10 +156,10 @@ class DerivationOrchestrator:
             synthetic_csv=self._state.synthetic_csv,
             llm_base_url=self._llm_base_url,
         )
-        self._record_derivation_outcome(variable)
+        await self._record_derivation_outcome(variable)
 
-    def _record_derivation_outcome(self, variable: str) -> None:
-        """Record an audit entry for the derivation outcome of a variable."""
+    async def _record_derivation_outcome(self, variable: str) -> None:
+        """Record an audit entry and persist QC/pattern data for a derivation outcome."""
         assert self._state.dag is not None
         node = self._state.dag.get_node(variable)
         self._audit_trail.record(
@@ -151,6 +171,26 @@ class DerivationOrchestrator:
                 "qc_verdict": node.qc_verdict.value if node.qc_verdict else None,
             },
         )
+
+        # Persist QC result to long-term memory
+        if self._qc_repo is not None and node.qc_verdict is not None:
+            await self._qc_repo.store(
+                variable=variable,
+                verdict=node.qc_verdict,
+                coder_approach=node.coder_approach or "",
+                qc_approach=node.qc_approach or "",
+                study=self._state.spec.metadata.study if self._state.spec else "",
+            )
+
+        # Store approved pattern for future reuse
+        if self._pattern_repo is not None and node.status == DerivationStatus.APPROVED and node.approved_code:
+            await self._pattern_repo.store(
+                variable_type=variable,
+                spec_logic=node.rule.logic,
+                approved_code=node.approved_code,
+                study=self._state.spec.metadata.study if self._state.spec else "",
+                approach=node.coder_approach or "",
+            )
 
     async def _step_audit(self) -> None:
         assert self._state.dag is not None
@@ -174,39 +214,24 @@ class DerivationOrchestrator:
             agent=AgentName.AUDITOR,
             details={"auto_approved": str(result.output.auto_approved)},
         )
-        self._fsm.audit_records.append(
-            AuditRecord(
-                timestamp=datetime.now(UTC).isoformat(),
-                workflow_id=self._state.workflow_id,
-                variable="",
-                action=AuditAction.AUDIT_COMPLETE,
-                agent=AgentName.AUDITOR,
-                details={"auto_approved": str(result.output.auto_approved)},
-            )
-        )
 
     def _build_result(self, elapsed: float) -> WorkflowResult:
         dag = self._state.dag
-        qc_summary: dict[str, str] = {}
-        derived: list[str] = []
-        if dag:
-            for v, node in dag.nodes.items():
-                qc_summary[v] = node.qc_verdict.value if node.qc_verdict else DerivationStatus.PENDING.value
-                if node.status == DerivationStatus.APPROVED:
-                    derived.append(v)
-
+        qc_summary = (
+            {v: (n.qc_verdict.value if n.qc_verdict else DerivationStatus.PENDING.value) for v, n in dag.nodes.items()}
+            if dag
+            else {}
+        )
+        derived = [v for v, n in dag.nodes.items() if n.status == DerivationStatus.APPROVED] if dag else []
         is_completed = self._fsm.current_state_value == WorkflowStep.COMPLETED.value
         status = WorkflowStatus.COMPLETED if is_completed else WorkflowStatus.FAILED
-        study = self._state.spec.metadata.study if self._state.spec else "unknown"
-
-        all_audit = self._audit_trail.records + self._fsm.audit_records
         return WorkflowResult(
             workflow_id=self._state.workflow_id,
-            study=study,
+            study=self._state.spec.metadata.study if self._state.spec else "unknown",
             status=status,
             derived_variables=derived,
             qc_summary=qc_summary,
-            audit_records=all_audit,
+            audit_records=self._audit_trail.records + self._fsm.audit_records,
             audit_summary=self._state.audit_summary,
             errors=self._state.errors,
             duration_seconds=round(elapsed, 3),
