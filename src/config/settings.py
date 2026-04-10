@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://localhost:8650/v1"
     llm_api_key: str = "not-needed-for-mailbox"
     llm_model: str = "cdde-agent"
+    api_host: str = "0.0.0.0"  # noqa: S104 — default binds all interfaces; override via env for production
+    api_port: int = 8000
+    cors_origins: str = "*"
+    output_dir: str = "output"
 
 
 @lru_cache(maxsize=1)

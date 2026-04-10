@@ -21,6 +21,8 @@ COPY data/ data/
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 
-EXPOSE 8501
+COPY .env .env
 
-CMD ["streamlit", "run", "src/ui/app.py", "--server.port=8501", "--server.headless=true", "--server.address=0.0.0.0"]
+EXPOSE 8000
+
+CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000"]

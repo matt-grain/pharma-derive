@@ -21,44 +21,71 @@
 | 8 | Design Document + Presentation | ✅ Complete | — |
 | 9 | Docker Compose + README | ✅ Complete | — |
 
-## Phase 10 — Production Hardening Refactor
+## Phase 10 — Production Hardening Refactor ✅
+
+15/15 findings fixed. 153 tests. See `REFACTORING.md` for details.
+
+## Phase 11 — UI/API Split
 
 **Date:** 2026-04-10
-**Features:** 9 refactoring items + quality quick wins
-**Sub-phases:** 3
-**Agent:** `python-fastapi` (all sub-phases)
-**Baseline:** 148 tests passing, all lint/typecheck clean
+**Scope:** Split monolithic Streamlit app into FastAPI REST backend + Vite React SPA frontend
+**Sub-phases:** 4
+**Baseline:** 153 tests passing, all lint/typecheck clean
 
 ### Motivation
 
-The Sanofi homework evaluators explicitly grade on:
-- **§9.7 Implementation Quality** — code structure, modularity, readability
-- **§11.C Reliability** — failure modes, error propagation
+The Sanofi homework evaluators grade on:
+- **§10.A Deployment Architecture** — service separation, containerization
 - **§10.D Workflow Orchestration** — failure handling
+- **§11.A Platform Thinking** — scales across studies
+- **§11.E Enterprise Integration** — infrastructure constraints
 
-Current codebase has PoC shortcuts (asserts as guards, zero DB error handling, fragile manual DAG updates, misplaced modules) that directly cost points.
+A monolithic Streamlit app cannot be independently scaled, tested, or deployed. Splitting into FastAPI backend + React SPA demonstrates production architecture thinking.
+
+### Architecture
+
+```
+┌─────────┐     ┌──────────────┐     ┌──────────────────────────┐
+│  nginx   │────►│  React SPA   │     │  FastAPI Backend          │
+│  :80     │     │  :3000       │────►│  :8000                    │
+└─────────┘     └──────────────┘     │  ├── REST API (/api/v1/)  │
+                                     │  └── MCP Server (SSE)      │
+                                     └──────────┬─────────────────┘
+                                                │
+                                      ┌─────────┴─────────┐
+                                      │    PostgreSQL      │
+                                      │    :5432           │
+                                      └───────────────────┘
+```
 
 ### Sub-Phase Summary
 
-| Sub-Phase | Title | Files Changed | Dependencies |
-|-----------|-------|--------------|-------------|
-| 10.1 | Foundation — New Types + Module Restructure | ~25 new/moved | None |
-| 10.2 | Wiring — Use New Structures | ~15 modified | 10.1 |
-| 10.3 | Polish — Quality Quick Wins | ~12 modified | 10.2 |
+| Sub-Phase | Title | New Files | Agent | Dependencies |
+|-----------|-------|-----------|-------|-------------|
+| 11.1 | FastAPI REST API | ~12 Python files | `python-fastapi` | None |
+| 11.2 | FastMCP Thin Layer | ~3 Python files | `python-mcp-expert` | 11.1 |
+| 11.3 | Vite + React SPA | ~25 TS/TSX files | `vite-react` | 11.1 |
+| 11.4 | Docker Compose + nginx | ~6 config files | `general-purpose` | 11.1, 11.3 |
 
 ### Cross-Phase Dependencies
 
-- **10.1 → 10.2:** Phase 10.1 creates domain exceptions, `DerivationRunResult`, `BaseRepository`, `src/config/`, `src/agents/tools/` package. Phase 10.2 wires these into existing modules.
-- **10.2 → 10.3:** Phase 10.2 stabilizes all imports and behavior. Phase 10.3 adds docstrings, type hints, and config cleanup on the stabilized code.
+- **11.1 → 11.2:** FastMCP wraps the same service layer created in 11.1
+- **11.1 → 11.3:** React frontend calls the REST API endpoints from 11.1
+- **11.1 + 11.3 → 11.4:** Docker needs both backend and frontend images
 
 ### Per-Phase Plan Files
 
-- `IMPLEMENTATION_PLAN_PHASE_10_1.md` — Foundation
-- `IMPLEMENTATION_PLAN_PHASE_10_2.md` — Wiring
-- `IMPLEMENTATION_PLAN_PHASE_10_3.md` — Polish
+- `IMPLEMENTATION_PLAN_PHASE_11_1.md` — FastAPI REST API
+- `IMPLEMENTATION_PLAN_PHASE_11_2.md` — FastMCP Layer
+- `IMPLEMENTATION_PLAN_PHASE_11_3.md` — Vite + React SPA
+- `IMPLEMENTATION_PLAN_PHASE_11_4.md` — Docker Compose + nginx
+
+### Sticky Sessions
+
+The orchestrator holds in-memory state (DataFrame + DAG) during a run. With multiple backend containers, nginx `ip_hash` ensures all requests for a workflow route to the same container. A container crash fails the workflow gracefully (FSM → `failed`). The user re-runs. Stateless backend (serialize DataFrame to blob storage between steps) is the production evolution — documented but not implemented in homework scope.
 
 ## Final Metrics
 
-- **148 tests** | **89% coverage** | **19 import contracts** | **18 pre-push hooks**
+- **153 tests** | **89% coverage** | **19 import contracts** | **18 pre-push hooks**
 - **10 custom architectural checks** (all green)
 - **3 deliverables**: design doc, presentation slides, working prototype

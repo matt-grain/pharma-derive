@@ -71,6 +71,10 @@ class DerivationDAG:
         """Get node by variable name. Raises KeyError if not found."""
         return self._nodes[variable]
 
+    def get_dependencies(self, variable: str) -> list[str]:
+        """Return variables that this variable depends on."""
+        return list(self._graph.predecessors(variable))
+
     def apply_run_result(self, result: DerivationRunResult) -> None:
         """Atomically update a DAG node from a derivation run result."""
         node = self._nodes[result.variable]

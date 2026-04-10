@@ -178,3 +178,9 @@ ignore_imports =
     src.factory -> src.persistence.database
     src.factory -> src.persistence
     src.engine.orchestrator -> src.persistence
+
+[importlinter:contract:api-no-ui]
+name = API cannot import from UI
+type = forbidden
+source_modules = src.api
+forbidden_modules = src.ui

@@ -11,16 +11,25 @@ Built as a take-home assignment for the Sanofi AI/ML Lead role.
 git clone https://github.com/matt-grain/pharma-derive.git
 cd pharma-derive
 uv sync
+cd frontend && npm install && cd ..
 
-# Run tests (153 tests, 89% coverage)
+# Run tests (165 tests)
 uv run pytest
 
-# Start the Streamlit UI
-uv run streamlit run src/ui/app.py
+# Start the backend API (terminal 1)
+uv run uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --reload
 
-# Or with Docker
+# Start the frontend dev server (terminal 2)
+cd frontend && npm run dev
+
+# Or with Docker (all-in-one)
 docker compose up --build
 ```
+
+- Backend API + docs: `http://localhost:8000/docs`
+- Frontend SPA: `http://localhost:3000`
+- MCP endpoint (for LLM agents): `http://localhost:8000/mcp/`
+- Legacy Streamlit UI: `uv run streamlit run src/ui/app.py`
 
 ## Architecture
 
@@ -77,7 +86,7 @@ uv run lint-imports          # Architectural boundary check
 
 ## Quality
 
-- 153 tests | 89% coverage
+- 165 tests | 89% coverage
 - pyright strict mode (0 errors)
 - 19 import-linter contracts (layer boundaries)
 - 10 custom pre-push architectural checks
