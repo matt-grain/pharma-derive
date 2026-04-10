@@ -55,6 +55,20 @@ async def list_workflows(manager: WorkflowManagerDep) -> list[WorkflowStatusResp
     return [_build_status_response(wf_id, manager) for wf_id in manager.list_workflow_ids()]
 
 
+@router.delete("/{workflow_id}", status_code=204)
+async def delete_workflow(workflow_id: str, manager: WorkflowManagerDep) -> None:
+    """Delete a workflow from history. Removes DB state and output files."""
+    if not manager.is_known(workflow_id):
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
+    await manager.delete_workflow(workflow_id)
+    # Clean up output files
+    output_dir = Path(get_settings().output_dir)
+    for suffix in ("_audit.json", "_adam.csv"):
+        path = output_dir / f"{workflow_id}{suffix}"
+        if path.exists():
+            path.unlink()
+
+
 @router.get("/{workflow_id}", response_model=WorkflowStatusResponse, status_code=200)
 async def get_workflow_status(
     workflow_id: str,

@@ -128,6 +128,21 @@ class WorkflowManager:
         """All known workflow IDs (active + completed + historic)."""
         return list({*self._active.keys(), *self._results.keys(), *self._history.keys()})
 
+    async def delete_workflow(self, workflow_id: str) -> None:
+        """Remove a workflow from all in-memory stores and delete its DB state."""
+        self._orchestrators.pop(workflow_id, None)
+        self._results.pop(workflow_id, None)
+        self._history.pop(workflow_id, None)
+        # Delete from DB
+        from sqlalchemy import delete as sql_delete
+
+        from src.persistence.orm_models import WorkflowStateRow
+
+        session_factory = await init_db()
+        async with session_factory() as session:
+            await session.execute(sql_delete(WorkflowStateRow).where(WorkflowStateRow.workflow_id == workflow_id))
+            await session.commit()
+
     async def cancel_active(self) -> None:
         """Cancel all running workflows. Used for graceful shutdown and test cleanup."""
         tasks = list(self._active.values())
