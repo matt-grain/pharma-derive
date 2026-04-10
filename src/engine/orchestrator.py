@@ -105,8 +105,23 @@ class DerivationOrchestrator:
 
         if self._output_dir is not None:
             self._audit_trail.to_json(self._output_dir / f"{self._state.workflow_id}_audit.json")
+            self._export_adam(self._output_dir)
 
         return result
+
+    def _export_adam(self, output_dir: Path) -> None:
+        """Save the derived DataFrame as CSV for downstream consumption and validation."""
+        if self._state.derived_df is None:
+            return
+        output_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = output_dir / f"{self._state.workflow_id}_adam.csv"
+        self._state.derived_df.to_csv(csv_path, index=False)
+        logger.info(
+            "ADaM output saved to {path} ({rows} rows, {cols} columns)",
+            path=csv_path,
+            rows=len(self._state.derived_df),
+            cols=len(self._state.derived_df.columns),
+        )
 
     def _rollback_derived_columns(self, source_cols: list[str]) -> None:
         """Drop any columns added during derivation to prevent partial state leaking."""
