@@ -6,13 +6,14 @@ All LLM construction goes through here. Agents never instantiate models directly
 from __future__ import annotations
 
 import os
+from typing import Final
 
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-_DEFAULT_BASE_URL = "http://localhost:8650/v1"
-_DEFAULT_API_KEY = "not-needed-for-mailbox"
-_DEFAULT_MODEL = "cdde-agent"
+_DEFAULT_BASE_URL: Final[str] = "http://localhost:8650/v1"
+_DEFAULT_API_KEY: Final[str] = "not-needed-for-mailbox"
+_DEFAULT_MODEL: Final[str] = "cdde-agent"
 
 
 def create_llm(

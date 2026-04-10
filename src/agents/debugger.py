@@ -6,14 +6,11 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openai import OpenAIProvider
 
-from src.domain.models import DerivationRule  # noqa: TC001 — used in DebuggerDeps dataclass at runtime
-
-_model = OpenAIChatModel(
-    "cdde-agent",
-    provider=OpenAIProvider(base_url="http://localhost:8650/v1", api_key="not-needed-for-mailbox"),
+from src.domain.models import (  # noqa: TC001 — used in DebuggerDeps dataclass at runtime
+    ConfidenceLevel,
+    CorrectImplementation,
+    DerivationRule,
 )
 
 
@@ -22,9 +19,9 @@ class DebugAnalysis(BaseModel, frozen=True):
 
     variable_name: str
     root_cause: str
-    correct_implementation: str  # "coder", "qc", or "neither"
+    correct_implementation: CorrectImplementation
     suggested_fix: str
-    confidence: str  # "high", "medium", "low"
+    confidence: ConfidenceLevel
 
 
 @dataclass
@@ -39,7 +36,7 @@ class DebuggerDeps:
 
 
 debugger_agent: Agent[DebuggerDeps, DebugAnalysis] = Agent(
-    _model,
+    "test",  # overridden at call time via model= parameter
     output_type=DebugAnalysis,
     deps_type=DebuggerDeps,
     retries=3,

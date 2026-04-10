@@ -4,15 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openai import OpenAIProvider
 
 from src.agents.tools import CoderDeps, execute_code, inspect_data
-
-_model = OpenAIChatModel(
-    "cdde-agent",
-    provider=OpenAIProvider(base_url="http://localhost:8650/v1", api_key="not-needed-for-mailbox"),
-)
 
 
 class DerivationCode(BaseModel, frozen=True):
@@ -25,7 +18,7 @@ class DerivationCode(BaseModel, frozen=True):
 
 
 coder_agent: Agent[CoderDeps, DerivationCode] = Agent(
-    _model,
+    "test",  # overridden at call time via model= parameter
     output_type=DerivationCode,
     deps_type=CoderDeps,
     retries=3,

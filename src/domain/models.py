@@ -1,5 +1,7 @@
 """Domain models for the Clinical Data Derivation Engine."""
 
+from __future__ import annotations
+
 from enum import StrEnum
 
 from pydantic import BaseModel
@@ -111,10 +113,34 @@ class DerivationStatus(StrEnum):
 
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
-    QC_PASS = "qc_pass"
+    QC_PASS = "qc_pass"  # noqa: S105 — not a password; QC pass/fail status
     QC_MISMATCH = "qc_mismatch"
     APPROVED = "approved"
     FAILED = "failed"
+
+
+class CorrectImplementation(StrEnum):
+    """Debugger's assessment of which implementation is correct."""
+
+    CODER = "coder"
+    QC = "qc"
+    NEITHER = "neither"
+
+
+class ConfidenceLevel(StrEnum):
+    """Debugger's confidence in its analysis."""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class VerificationRecommendation(StrEnum):
+    """Recommendation from the verification comparator."""
+
+    NEEDS_DEBUG = "needs_debug"
+    INSUFFICIENT_INDEPENDENCE = "insufficient_independence"
+    AUTO_APPROVE = "auto_approve"
 
 
 class DAGNode(BaseModel):
@@ -175,3 +201,22 @@ class QCStats(BaseModel, frozen=True):
     matches: int
     mismatches: int
     match_rate: float
+
+
+class AuditSummary(BaseModel, frozen=True):
+    """Structured output of the auditor agent."""
+
+    study: str
+    total_derivations: int
+    auto_approved: int
+    qc_mismatches: int
+    human_interventions: int
+    summary: str
+    recommendations: list[str]
+
+
+class WorkflowStatus(StrEnum):
+    """Terminal workflow outcome — simplified from WorkflowStep."""
+
+    COMPLETED = "completed"
+    FAILED = "failed"

@@ -9,8 +9,9 @@ import pandas as pd
 import pytest
 
 from src.domain.dag import DerivationDAG
+from src.domain.models import WorkflowStatus
 from src.domain.spec_parser import get_source_columns, parse_spec
-from src.engine.orchestrator import DerivationOrchestrator, WorkflowState, WorkflowStatus
+from src.engine.orchestrator import DerivationOrchestrator, WorkflowState
 
 if TYPE_CHECKING:
     from pathlib import Path

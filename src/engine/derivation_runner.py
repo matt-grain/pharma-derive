@@ -16,14 +16,14 @@ from src.agents.debugger import DebugAnalysis, DebuggerDeps, debugger_agent
 from src.agents.derivation_coder import DerivationCode, coder_agent
 from src.agents.qc_programmer import qc_agent
 from src.agents.tools import CoderDeps
-from src.domain.models import DerivationStatus
+from src.domain.executor import execute_derivation
+from src.domain.models import CorrectImplementation, DerivationStatus, QCVerdict
 from src.engine.llm_gateway import create_llm
 from src.verification.comparator import VerificationResult, verify_derivation
 
 if TYPE_CHECKING:
     from src.domain.dag import DerivationDAG
-
-_MAX_DEBUG_RETRIES = 2
+    from src.domain.models import DerivationRule
 
 
 async def run_variable(
@@ -43,7 +43,7 @@ async def run_variable(
 
     vr = verify_derivation(variable, coder.python_code, qc_code.python_code, derived_df, available)
 
-    if vr.verdict.value == "match":
+    if vr.verdict == QCVerdict.MATCH:
         _apply_approved(variable, dag, derived_df, vr)
         return
 
@@ -59,21 +59,18 @@ async def run_variable(
 
 
 async def _run_coder_and_qc(
-    rule: object,
+    rule: DerivationRule,
     df: pd.DataFrame,
     synthetic_csv: str,
     available: list[str],
     llm_base_url: str,
 ) -> tuple[DerivationCode, DerivationCode]:
     """Fan-out coder and QC agent calls in parallel."""
-    from src.domain.models import DerivationRule  # local to avoid circular import at module level
-
-    typed_rule: DerivationRule = rule  # type: ignore[assignment]
     llm = create_llm(base_url=llm_base_url)
-    deps = CoderDeps(df=df, synthetic_csv=synthetic_csv, rule=typed_rule, available_columns=available)
+    deps = CoderDeps(df=df, synthetic_csv=synthetic_csv, rule=rule, available_columns=available)
     coder_out, qc_out = await asyncio.gather(
-        coder_agent.run(str(typed_rule.logic), deps=deps, model=llm),
-        qc_agent.run(str(typed_rule.logic), deps=deps, model=llm),
+        coder_agent.run(str(rule.logic), deps=deps, model=llm),
+        qc_agent.run(str(rule.logic), deps=deps, model=llm),
     )
     return coder_out.output, qc_out.output
 
@@ -101,9 +98,9 @@ def _resolve_approved_code(
     """Pick the approved code based on debugger's recommendation."""
     if analysis.suggested_fix and analysis.suggested_fix.strip():
         return analysis.suggested_fix
-    if analysis.correct_implementation == "coder":
+    if analysis.correct_implementation == CorrectImplementation.CODER:
         return coder.python_code
-    if analysis.correct_implementation == "qc":
+    if analysis.correct_implementation == CorrectImplementation.QC:
         return qc_code.python_code
     return None
 
@@ -115,8 +112,6 @@ def _apply_debug_fix(
     approved_code: str,
 ) -> None:
     """Execute debugger-approved code and add column to derived_df."""
-    from src.domain.executor import execute_derivation
-
     result = execute_derivation(derived_df, approved_code, list(derived_df.columns))
     if result.success and result.series_json:
         approved_series: pd.Series[object] = pd.read_json(  # type: ignore[assignment]
@@ -138,7 +133,7 @@ async def _debug_variable(
     qc_code: DerivationCode,
     llm_base_url: str,
 ) -> DebugAnalysis:
-    """Run the debugger agent for a QC mismatch. Retry up to _MAX_DEBUG_RETRIES times."""
+    """Run the debugger agent for a QC mismatch."""
     node = dag.get_node(variable)
     summary = f"Mismatches: {vr.comparison.mismatch_count if vr.comparison else 'unknown'}"
     llm = create_llm(base_url=llm_base_url)

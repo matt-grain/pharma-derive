@@ -17,8 +17,10 @@ from __future__ import annotations
 from pathlib import Path  # noqa: TC003 — used at runtime in pytest fixture parameter types
 
 import pytest
+from pydantic import ValidationError
 
-from src.engine.orchestrator import DerivationOrchestrator, WorkflowResult, WorkflowStatus
+from src.domain.models import WorkflowStatus
+from src.engine.orchestrator import DerivationOrchestrator, WorkflowResult
 
 # ---------------------------------------------------------------------------
 # Orchestrator construction
@@ -95,7 +97,7 @@ def test_workflow_result_is_frozen() -> None:
     )
 
     # Act & Assert — frozen models raise ValidationError on mutation
-    with pytest.raises(Exception):  # noqa: B017 — pydantic raises ValidationError, not AssertionError
+    with pytest.raises(ValidationError):
         result.study = "OTHER"  # type: ignore[misc]
 
 

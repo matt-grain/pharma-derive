@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002 — stored as self._session at runtime
 
-from src.domain.models import FeedbackRecord, PatternRecord, QCStats
+from src.domain.models import FeedbackRecord, PatternRecord, QCStats, QCVerdict
 from src.persistence.orm_models import (
     FeedbackRow,
     PatternRow,
@@ -104,14 +104,14 @@ class QCHistoryRepository:
     async def store(
         self,
         variable: str,
-        verdict: str,
+        verdict: QCVerdict,
         coder_approach: str,
         qc_approach: str,
         study: str,
     ) -> None:
         row = QCHistoryRow(
             variable=variable,
-            verdict=verdict,
+            verdict=verdict.value,
             coder_approach=coder_approach,
             qc_approach=qc_approach,
             study=study,
@@ -122,7 +122,7 @@ class QCHistoryRepository:
 
     async def get_stats(self, variable: str | None = None) -> QCStats:
         base = select(func.count()).select_from(QCHistoryRow)
-        match_stmt = select(func.count()).select_from(QCHistoryRow).where(QCHistoryRow.verdict == "match")
+        match_stmt = select(func.count()).select_from(QCHistoryRow).where(QCHistoryRow.verdict == QCVerdict.MATCH.value)
         if variable:
             base = base.where(QCHistoryRow.variable == variable)
             match_stmt = match_stmt.where(QCHistoryRow.variable == variable)

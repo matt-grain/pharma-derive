@@ -8,7 +8,7 @@ from __future__ import annotations
 import io
 from contextlib import redirect_stdout
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import numpy as np
 import pandas as pd
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 # Builtins permitted inside execute_code sandbox.
 # Deliberately minimal — no I/O, no import, no introspection.
-_SAFE_BUILTINS: dict[str, Any] = {
+_SAFE_BUILTINS: Final[dict[str, Any]] = {
     "len": len,
     "range": range,
     "str": str,
@@ -46,7 +46,7 @@ _SAFE_BUILTINS: dict[str, Any] = {
     "print": print,
 }
 
-_BLOCKED_TOKENS = frozenset(
+_BLOCKED_TOKENS: Final[frozenset[str]] = frozenset(
     {"import", "open", "eval", "exec", "__import__", "compile", "globals", "locals", "getattr", "setattr", "delattr"}
 )
 
@@ -172,8 +172,17 @@ async def execute_code(ctx: RunContext[CoderDeps], code: str) -> str:
     stdout_buf = io.StringIO()
     try:
         with redirect_stdout(stdout_buf):
-            exec(code, globals_ns, local_ns)
-    except Exception as exc:
+            exec(code, globals_ns, local_ns)  # noqa: S102 — sandboxed exec: restricted builtins via _SAFE_BUILTINS, blocked tokens checked
+    except (
+        SyntaxError,
+        NameError,
+        TypeError,
+        ValueError,
+        ArithmeticError,
+        AttributeError,
+        KeyError,
+        IndexError,
+    ) as exc:
         return f"ERROR: {type(exc).__name__}: {exc}"
 
     if "result" not in local_ns:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import numpy as np
 import pandas as pd
@@ -22,7 +22,7 @@ from src.domain.models import (
     ValidationConfig,
 )
 
-_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DATE_PATTERN: Final[re.Pattern[str]] = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def parse_spec(spec_path: str | Path) -> TransformationSpec:

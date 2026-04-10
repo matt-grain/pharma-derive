@@ -12,12 +12,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import pytest
 
-from src.agents.auditor import AuditorDeps, AuditSummary, auditor_agent
+from src.agents.auditor import AuditorDeps, auditor_agent
 from src.agents.debugger import DebugAnalysis, debugger_agent
 from src.agents.derivation_coder import DerivationCode, coder_agent
 from src.agents.qc_programmer import qc_agent
 from src.agents.spec_interpreter import SpecInterpretation, spec_interpreter_agent
-from src.domain.models import SpecMetadata
+from src.domain.models import AuditSummary, SpecMetadata
 from tests.unit.conftest import get_system_prompts, get_tool_names
 
 # ---------------------------------------------------------------------------

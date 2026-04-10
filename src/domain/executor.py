@@ -54,8 +54,17 @@ def execute_derivation(
     start = time.perf_counter()
     try:
         # pd/np/df in globals so lambda closures can resolve them
-        result = eval(code, {"__builtins__": {}, "df": df, "pd": pd, "np": np})
-    except Exception as exc:
+        result = eval(code, {"__builtins__": {}, "df": df, "pd": pd, "np": np})  # noqa: S307 — sandboxed eval: restricted builtins, no __import__
+    except (
+        SyntaxError,
+        NameError,
+        TypeError,
+        ValueError,
+        ArithmeticError,
+        AttributeError,
+        KeyError,
+        IndexError,
+    ) as exc:
         elapsed = (time.perf_counter() - start) * 1000
         return ExecutionResult(success=False, error=str(exc), execution_time_ms=elapsed)
 

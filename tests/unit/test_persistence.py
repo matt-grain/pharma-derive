@@ -10,6 +10,7 @@ from collections.abc import AsyncGenerator  # noqa: TC003 — used at runtime in
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002 — used at runtime in pytest fixture return type
 
+from src.domain.models import QCVerdict
 from src.persistence.database import init_db
 from src.persistence.repositories import (
     FeedbackRepository,
@@ -120,9 +121,9 @@ async def test_feedback_repo_store_and_query(db_session: AsyncSession) -> None:
 async def test_qc_repo_store_and_get_stats(db_session: AsyncSession) -> None:
     # Arrange
     repo = QCHistoryRepository(db_session)
-    await repo.store("AGE_GROUP", "match", "pandas apply", "numpy where", "STUDY01")
-    await repo.store("AGE_GROUP", "match", "pandas apply", "numpy select", "STUDY01")
-    await repo.store("AGE_GROUP", "mismatch", "pandas map", "numpy where", "STUDY01")
+    await repo.store("AGE_GROUP", QCVerdict.MATCH, "pandas apply", "numpy where", "STUDY01")
+    await repo.store("AGE_GROUP", QCVerdict.MATCH, "pandas apply", "numpy select", "STUDY01")
+    await repo.store("AGE_GROUP", QCVerdict.MISMATCH, "pandas map", "numpy where", "STUDY01")
 
     # Act
     stats = await repo.get_stats()

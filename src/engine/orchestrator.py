@@ -6,18 +6,25 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pandas as pd  # noqa: TC002 — used in WorkflowState dataclass field at runtime
+from loguru import logger
 from pydantic import BaseModel
 
-from src.agents.auditor import AuditorDeps, AuditSummary, auditor_agent
+from src.agents.auditor import AuditorDeps, auditor_agent
 from src.audit.trail import AuditTrail
 from src.domain.dag import DerivationDAG
-from src.domain.models import AuditRecord, DerivationStatus, TransformationSpec
+from src.domain.models import (
+    AuditRecord,
+    AuditSummary,
+    DerivationStatus,
+    TransformationSpec,
+    WorkflowStatus,
+    WorkflowStep,
+)
 from src.domain.spec_parser import generate_synthetic, get_source_columns, load_source_data, parse_spec
 from src.engine.derivation_runner import run_variable
 from src.engine.llm_gateway import create_llm
@@ -31,11 +38,6 @@ if TYPE_CHECKING:
     )
 
 
-class WorkflowStatus(StrEnum):
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
 @dataclass
 class WorkflowState:
     """Mutable workflow state carried across orchestration steps."""
@@ -46,7 +48,8 @@ class WorkflowState:
     derived_df: pd.DataFrame | None = None
     synthetic_csv: str = ""
     current_variable: str | None = None
-    errors: list[str] = field(default_factory=lambda: [])
+    audit_summary: AuditSummary | None = None
+    errors: list[str] = field(default_factory=lambda: list[str]())
     started_at: str | None = None
     completed_at: str | None = None
 
@@ -112,6 +115,7 @@ class DerivationOrchestrator:
             await self._step_audit()
             self._fsm.finish()
         except Exception as exc:
+            logger.exception("Workflow {wf_id} failed: {err}", wf_id=self._state.workflow_id, err=exc)
             self._state.errors.append(str(exc))
             self._fsm.fail(str(exc))
 
@@ -193,6 +197,7 @@ class DerivationOrchestrator:
             ),
             model=llm,
         )
+        self._state.audit_summary = result.output
         self._audit_trail.record(
             variable="",
             action="audit_complete",
@@ -216,11 +221,12 @@ class DerivationOrchestrator:
         derived: list[str] = []
         if dag:
             for v, node in dag.nodes.items():
-                qc_summary[v] = node.qc_verdict.value if node.qc_verdict else "pending"
+                qc_summary[v] = node.qc_verdict.value if node.qc_verdict else DerivationStatus.PENDING.value
                 if node.status == DerivationStatus.APPROVED:
                     derived.append(v)
 
-        status = WorkflowStatus.COMPLETED if self._fsm.current_state_value == "completed" else WorkflowStatus.FAILED
+        is_completed = self._fsm.current_state_value == WorkflowStep.COMPLETED.value
+        status = WorkflowStatus.COMPLETED if is_completed else WorkflowStatus.FAILED
         study = self._state.spec.metadata.study if self._state.spec else "unknown"
 
         all_audit = self._audit_trail.records + self._fsm.audit_records
@@ -231,6 +237,7 @@ class DerivationOrchestrator:
             derived_variables=derived,
             qc_summary=qc_summary,
             audit_records=all_audit,
+            audit_summary=self._state.audit_summary,
             errors=self._state.errors,
             duration_seconds=round(elapsed, 3),
         )

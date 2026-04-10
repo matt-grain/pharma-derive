@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import yaml
 
 from src.domain.models import OutputDType, TransformationSpec
 from src.domain.spec_parser import (
@@ -34,7 +35,7 @@ def test_parse_spec_missing_file_raises() -> None:
 def test_parse_spec_invalid_yaml_raises(tmp_path: Path) -> None:
     bad_file = tmp_path / "bad.yaml"
     bad_file.write_text("not: a: valid: spec: [")
-    with pytest.raises(Exception):  # noqa: B017
+    with pytest.raises(yaml.YAMLError):
         parse_spec(bad_file)
 
 

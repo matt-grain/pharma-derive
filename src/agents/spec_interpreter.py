@@ -6,15 +6,8 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openai import OpenAIProvider
 
 from src.domain.models import DerivationRule  # noqa: TC001 — needed at runtime by Pydantic schema builder
-
-_model = OpenAIChatModel(
-    "cdde-agent",
-    provider=OpenAIProvider(base_url="http://localhost:8650/v1", api_key="not-needed-for-mailbox"),
-)
 
 
 class SpecInterpretation(BaseModel, frozen=True):
@@ -34,7 +27,7 @@ class SpecInterpreterDeps:
 
 
 spec_interpreter_agent: Agent[SpecInterpreterDeps, SpecInterpretation] = Agent(
-    _model,
+    "test",  # overridden at call time via model= parameter
     output_type=SpecInterpretation,
     deps_type=SpecInterpreterDeps,
     retries=3,

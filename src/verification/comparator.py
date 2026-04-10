@@ -14,7 +14,7 @@ import pandas as pd
 from pydantic import BaseModel
 
 from src.domain.executor import ComparisonResult, ExecutionResult, compare_results, execute_derivation
-from src.domain.models import QCVerdict
+from src.domain.models import QCVerdict, VerificationRecommendation
 
 
 class VerificationResult(BaseModel, frozen=True):
@@ -26,7 +26,7 @@ class VerificationResult(BaseModel, frozen=True):
     qc_result: ExecutionResult
     comparison: ComparisonResult | None = None
     ast_similarity: float = 0.0
-    recommendation: str = ""
+    recommendation: VerificationRecommendation = VerificationRecommendation.AUTO_APPROVE
 
 
 def compute_ast_similarity(code_a: str, code_b: str) -> float:
@@ -63,7 +63,7 @@ def verify_derivation(
             verdict=QCVerdict.MISMATCH,
             primary_result=primary_result,
             qc_result=qc_result,
-            recommendation="needs_debug",
+            recommendation=VerificationRecommendation.NEEDS_DEBUG,
         )
 
     # pd.read_json with typ="series" returns Series but pandas-stubs types it as DataFrame | Series
@@ -97,10 +97,10 @@ def _determine_verdict(
     comparison: ComparisonResult,
     ast_sim: float,
     independence_threshold: float,
-) -> tuple[QCVerdict, str]:
+) -> tuple[QCVerdict, VerificationRecommendation]:
     """Map comparison + similarity to a final verdict and recommendation string."""
     if comparison.mismatch_count > 0:
-        return QCVerdict.MISMATCH, "needs_debug"
+        return QCVerdict.MISMATCH, VerificationRecommendation.NEEDS_DEBUG
     if ast_sim > independence_threshold:
-        return QCVerdict.INSUFFICIENT_INDEPENDENCE, "insufficient_independence"
-    return QCVerdict.MATCH, "auto_approve"
+        return QCVerdict.INSUFFICIENT_INDEPENDENCE, VerificationRecommendation.INSUFFICIENT_INDEPENDENCE
+    return QCVerdict.MATCH, VerificationRecommendation.AUTO_APPROVE
