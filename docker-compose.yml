@@ -1,0 +1,13 @@
+services:
+  cdde:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./output:/app/output
+      - ./data:/app/data:ro
+    environment:
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:8650/v1}
+      - LLM_API_KEY=${LLM_API_KEY:-not-needed-for-mailbox}
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///cdde.db}
+    restart: unless-stopped

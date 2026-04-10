@@ -1,41 +1,28 @@
 # Implementation Plan — pharma-derive
 
 **Date:** 2026-04-09 (updated — originally 2026-04-08)
-**Scope:** Full system — engine core (Phases 1-4, complete) + CDISC data, review fixes, Streamlit, docs, Docker (Phases 5-9)
+**Scope:** Full system — COMPLETE
+**Status:** ✅ ALL 9 PHASES COMPLETE
 
-## Phases 1-4 (COMPLETE)
+## Phases 1-4 (Engine Core)
 
 - Phase 1: Domain layer (models, DAG, spec parser) — 25 tests
 - Phase 2: Agent definitions (5 PydanticAI agents, shared tools, LLM gateway) — 27 tests
 - Phase 3: Orchestration (WorkflowFSM, derivation runner, executor, comparator) — 35 tests
 - Phase 4: Persistence (SQLAlchemy), audit trail, integration tests — 31 tests
 
-**Status:** 118 tests | 85% coverage | 17 import contracts | all green
-**Review:** Architecture review completed, 18/18 critical+warning fixes applied.
-
-## Phases 5-9
+## Phases 5-9 (Features + Deliverables)
 
 | Phase | Title | Status | Tests |
 |-------|-------|--------|-------|
 | 5 | CDISC Pilot ADSL Spec + XPT Loader | ✅ Complete | 125 (+7) |
 | 6 | Review Fix — Deferred Items | ✅ Complete | 148 (+23) |
-| 7 | Streamlit HITL UI | ✅ Complete | 148 (no new — UI not unit tested) |
-| 8 | Design Document + Presentation | ⏳ Pending | — |
-| 9 | Docker Compose + README | ⏳ Pending | — |
+| 7 | Streamlit HITL UI | ✅ Complete | 148 |
+| 8 | Design Document + Presentation | ✅ Complete | — |
+| 9 | Docker Compose + README | ✅ Complete | — |
 
-## Cross-Phase Dependencies
+## Final Metrics
 
-```
-Phase 5 ✅ ─┐
-             ├──► Phase 7 ✅ ──► Phase 8 ──► Phase 9
-Phase 6 ✅ ─┘         │
-                       └──► Phase 9
-```
-
-## Per-Phase Plan Files
-
-- `IMPLEMENTATION_PLAN_PHASE_5.md` — CDISC data + XPT loader
-- `IMPLEMENTATION_PLAN_PHASE_6.md` — Deferred review fixes (file splits, tests, enums)
-- `IMPLEMENTATION_PLAN_PHASE_7.md` — Streamlit HITL UI
-- `IMPLEMENTATION_PLAN_PHASE_8.md` — Design doc + presentation slides
-- `IMPLEMENTATION_PLAN_PHASE_9.md` — Docker Compose + README
+- **148 tests** | **89% coverage** | **19 import contracts** | **18 pre-push hooks**
+- **10 custom architectural checks** (all green)
+- **3 deliverables**: design doc, presentation slides, working prototype

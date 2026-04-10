@@ -100,7 +100,7 @@ This plan validates all 4 phases of the CDDE using the `specs/simple_mock.yaml` 
 | Cycle detection | Add circular dep | Raises `ValueError("Circular dependency detected")` |
 | Unknown column | Reference nonexistent col | Raises `ValueError("Unknown source column")` |
 
-### Status: ✅ 25 unit tests passing
+### Status: ✅ 25 unit tests passing (Phase 1)
 
 ---
 
@@ -120,7 +120,7 @@ This plan validates all 4 phases of the CDDE using the `specs/simple_mock.yaml` 
 | LLM gateway | `create_llm()` | Returns `OpenAIChatModel` with correct base_url |
 | LLM gateway env vars | Set `LLM_BASE_URL` env var | Overrides default |
 
-### Status: ✅ 27 unit tests passing (52 total)
+### Status: ✅ 27 unit tests passing (52 total, Phase 2)
 
 ---
 
@@ -149,7 +149,7 @@ This plan validates all 4 phases of the CDDE using the `specs/simple_mock.yaml` 
 | Verify mismatch | Different output | `QCVerdict.MISMATCH`, recommendation="needs_debug" |
 | Verify independence | Same AST | `QCVerdict.INSUFFICIENT_INDEPENDENCE` |
 
-### Status: ✅ 35 unit tests passing (87 total)
+### Status: ✅ 35 unit tests passing (87 total, Phase 3)
 
 ---
 
@@ -189,6 +189,115 @@ This plan validates all 4 phases of the CDDE using the `specs/simple_mock.yaml` 
 | Full workflow | Run orchestrator with simple_mock.yaml + TestModel | Status "completed", 4 variables derived, no errors |
 | QC mismatch flow | Mock QC to return wrong code | Debugger triggered, audit trail shows mismatch |
 | DAG order | Track agent call order via audit trail | Layer 0 before Layer 1 before Layer 2 |
+
+---
+
+## Phase 5 — CDISC Pilot Data Validation
+
+### What to verify
+
+| Test | How | Pass Criteria |
+|------|-----|---------------|
+| XPT format accepted | Parse `specs/adsl_cdiscpilot01.yaml` | `source.format == "xpt"` |
+| XPT loading (DM) | `load_source_data(spec)` with real XPT | DataFrame with >0 rows, AGE column exists |
+| Unsupported format | Spec with `format: parquet` | Raises `ValueError("Unsupported source format")` |
+| ADSL spec parse | Parse full ADSL spec | 7 derivations, study="cdiscpilot01" |
+| Multi-domain merge | Load 4 domains (DM+EX+DS+SV) | USUBJID, AGE, RFXSTDTC, DSDECOD all present |
+| DAG from ADSL | Build DAG from ADSL derivations | AGEGR1 in layer 0, EFFFL in later layer |
+| Synthetic from CDISC | Generate synthetic from merged SDTM | 15 rows, same columns as source |
+
+### Status: ✅ 3 unit + 4 integration tests passing (125 total)
+
+---
+
+## Phase 6 — Review Fix: Deferred Items
+
+### What to verify
+
+#### File Splits
+
+| Test | How | Pass Criteria |
+|------|-----|---------------|
+| orchestrator split | Import `WorkflowState` from `workflow_models` | Module exists, imports work |
+| spec_parser split | Import `load_source_data` from `source_loader` | Module exists, function works |
+| synthetic split | Import `generate_synthetic` from `synthetic` | Module exists, function works |
+| tools split | Import `CoderDeps` from `deps` | Module exists, class works |
+
+#### Derivation Runner Tests
+
+| Test | How | Pass Criteria |
+|------|-----|---------------|
+| resolve — suggested fix preferred | `DebugAnalysis` with `suggested_fix` | Returns suggested_fix |
+| resolve — coder selected | `correct_implementation=CODER` | Returns coder code |
+| resolve — qc selected | `correct_implementation=QC` | Returns QC code |
+| resolve — neither returns none | `correct_implementation=NEITHER` | Returns None |
+| apply approved — adds column | Call with valid series JSON | Column in derived_df, node APPROVED |
+| apply debug fix — success | Mock `execute_derivation` success | Node APPROVED, column added |
+| apply debug fix — failure | Mock `execute_derivation` failure | Node QC_MISMATCH |
+
+#### Logging Tests
+
+| Test | How | Pass Criteria |
+|------|-----|---------------|
+| default setup | `setup_logging()` | No exception |
+| file sink | `setup_logging(log_file=...)` | No exception |
+| custom level | `setup_logging(level="DEBUG")` | No exception |
+
+#### FSM Transition Tests
+
+| Test | How | Pass Criteria |
+|------|-----|---------------|
+| fail from dag_built | Transition to dag_built, call fail | `current_state_value == "failed"` |
+| fail from debugging | Transition to debugging, call fail | `current_state_value == "failed"` |
+| fail from review | Transition to review, call fail | `current_state_value == "failed"` |
+| fail from auditing | Transition to auditing, call fail | `current_state_value == "failed"` |
+| debug to review | Transition to debugging, finish_review | `current_state_value == "review"` |
+| fail() from any state | Parametrized across 5 non-terminal states | All reach "failed" |
+
+#### Persistence Edge Cases
+
+| Test | How | Pass Criteria |
+|------|-----|---------------|
+| feedback empty query | Query nonexistent variable | Returns `[]` |
+| feedback respects limit | Store 5, query limit=2 | Returns 2 |
+| QC stats by variable | Store for 2 variables, filter | Only matching variable counted |
+
+### Status: ✅ 23 new tests passing (148 total)
+
+---
+
+## Phase 7 — Streamlit HITL UI
+
+### What to verify (manual — Streamlit not unit testable)
+
+| Test | How | Pass Criteria |
+|------|-----|---------------|
+| App starts | `uv run streamlit run src/ui/app.py` | Page loads, sidebar shows CDDE branding |
+| Theme applied | Visual inspection | Dark background, orange accent, IBM Plex Mono |
+| Spec dropdown | Navigate to Workflow page | Shows available specs from `specs/*.yaml` |
+| Run button | Click "Start Derivation Run" (needs AgentLens) | Spinner → results or error |
+| Audit page | Navigate to Audit Trail | Shows dropdown of audit JSON files from output/ |
+| Import contract | `uv run lint-imports` | `ui-no-persistence` contract passes |
+
+### Status: ✅ Tooling passes (19 contracts, 0 violations). UI is integration-tested manually.
+
+---
+
+## Phases 8-9 — Documentation + Docker
+
+### What to verify
+
+| Test | How | Pass Criteria |
+|------|-----|---------------|
+| Design doc exists | Read `docs/design.md` | ~3 pages, all 8 sections present |
+| Mermaid diagrams | Check design doc | At least 2 diagrams (architecture + FSM) |
+| Slides exist | Read `presentation/slides.md` | 18 slides, Marp format |
+| Speaker notes | Check slides | `<!-- Speaker notes: -->` in each slide |
+| Dockerfile builds | `docker build -t cdde .` | Image builds successfully |
+| Compose up | `docker compose up` | Container starts, port 8501 accessible |
+| README quick start | Follow README instructions | Works in ≤5 commands |
+
+### Status: ✅ All deliverables created. Docker tested via build.
 
 ---
 
@@ -522,15 +631,18 @@ except Exception as e:
 
 After all automated tests AND manual functional validation pass:
 
-- [ ] `uv run pytest --cov=src --cov-report=term-missing` — coverage ≥ 80%
-- [ ] `uv run lint-imports` — all contracts kept
+- [ ] `uv run pytest --cov=src --cov-report=term-missing` — coverage ≥ 80% (current: 89%)
+- [ ] `uv run lint-imports` — all 19 contracts kept
 - [ ] `uv run vulture src/ --min-confidence 80` — no dead code
 - [ ] `uv run radon cc src/ -a -nc` — no D or F complexity
-- [ ] All 7 custom pre-commit checks pass
+- [ ] All 10 custom pre-push checks pass + 18 total pre-push hooks green
 - [ ] Step 1-5 above pass without errors (no LLM needed)
 - [ ] Step 6 runs successfully with AgentLens (real LLM)
+- [ ] Streamlit UI loads and displays correctly
+- [ ] Docker build + compose up works
 - [ ] Audit trail JSON export is human-readable
-- [ ] `python-statemachine` diagram generated for presentation
+- [ ] Design doc is 2-4 pages with required sections
+- [ ] Presentation has 18 slides with speaker notes
 
 ## Test Coverage Targets
 

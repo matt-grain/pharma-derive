@@ -14,10 +14,10 @@
 | Phase 5: CDISC data | ✅ Complete | 125 | 100% |
 | Phase 6: Review fixes | ✅ Complete | 148 | 100% |
 | Phase 7: Streamlit UI | ✅ Complete | 148 | 100% |
-| Phase 8: Design doc + Presentation | ⏳ Pending | — | 0% |
-| Phase 9: Docker + README | ⏳ Pending | — | 0% |
+| Phase 8: Design doc + Presentation | ✅ Complete | 148 | 100% |
+| Phase 9: Docker + README | ✅ Complete | 148 | 100% |
 
-**Overall:** 7/9 phases complete (78%)
+**Overall:** 9/9 phases complete (100%) ✅
 
 ---
 
@@ -102,14 +102,45 @@
 
 ---
 
-## Next Phase Preview
+## Phase 8 — Design Document + Presentation
 
-**Phase 8: Design Document + Presentation**
-- 3 files (docs/design.md, presentation/slides.md, presentation/README.md)
-- Dependencies: Phases 5-7 ✅
-- Ready to start
+**Implemented:** 2026-04-09
+**Agent:** general-purpose
+**Tooling:** N/A (documentation only)
 
-**Phase 9: Docker Compose + README**
-- 4 files (Dockerfile, docker-compose.yml, .dockerignore, README.md)
-- Dependencies: Phase 7 ✅
-- Ready to start
+### Completed
+- ✅ Design document (`docs/design.md`) — 3-page synthesized deliverable with mermaid diagrams
+- ✅ Marp presentation (`presentation/slides.md`) — 18 slides with speaker notes, dark theme
+- ✅ Presentation README (`presentation/README.md`) — render instructions
+
+### Files Created
+- `docs/design.md` (207 lines) — system architecture, agent roles, orchestration, DAG, HITL, traceability, memory, trade-offs, limitations
+- `presentation/slides.md` (352 lines) — 18 Marp slides for 15-20 min panel talk
+- `presentation/README.md` (11 lines) — Marp CLI render command
+
+---
+
+## Phase 9 — Docker Compose + README
+
+**Implemented:** 2026-04-09
+**Agent:** general-purpose
+
+### Completed
+- ✅ Multi-stage Dockerfile (python:3.13-slim + uv from official image)
+- ✅ docker-compose.yml (single service, output/data volumes, env defaults)
+- ✅ .dockerignore (excludes tests, tools, .git, .venv)
+- ✅ .env.example (LLM_BASE_URL, LLM_API_KEY, DATABASE_URL)
+- ✅ README.md (94 lines — quick start, architecture, features, quality metrics, deliverable links)
+
+### Files Created
+- `Dockerfile` (26 lines)
+- `docker-compose.yml` (13 lines)
+- `.dockerignore` (18 lines)
+- `.env.example` (7 lines)
+- `README.md` (94 lines)
+
+---
+
+## All Phases Complete ✅
+
+**Final metrics:** 148 tests | 89% coverage | 19 import contracts | 18 pre-push hooks | 10 custom arch checks

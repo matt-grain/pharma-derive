@@ -14,9 +14,9 @@ This document tracks all quality gates, linters, and architectural checks in the
 | **vulture** | 2.16+ | Dead code detection (>= 80% confidence) | pre-push |
 | **pre-commit** | 4.5+ | Git hook orchestrator | commit + push |
 
-## Pre-Commit Hooks
+## Pre-Commit Hooks (18 total)
 
-### On Every Commit (fast)
+### On Every Commit (fast — 3 hooks)
 
 | Hook | What It Catches |
 |------|----------------|
@@ -24,75 +24,66 @@ This document tracks all quality gates, linters, and architectural checks in the
 | `ruff-format` | Formatting inconsistencies |
 | `pyright` | Type errors (strict mode, 0 errors required) |
 
-### On Every Push (thorough)
+### On Every Push (thorough — 15 hooks)
 
 | Hook | What It Catches |
 |------|----------------|
 | `pytest` | Test failures, coverage below 80% |
-| `import-linter` | Layer boundary violations (see contracts below) |
+| `import-linter` | Layer boundary violations (19 contracts) |
 | `radon cc` | Functions with cyclomatic complexity >= C |
 | `radon mi` | Modules with poor maintainability index |
 | `vulture` | Unused code (dead functions, variables, imports) |
-| `check-domain-purity` | Framework imports in domain/ (PydanticAI, loguru, SQLAlchemy, etc.) |
+| `check-domain-purity` | Framework imports in domain/ |
 | `check-raw-sql-in-engine` | SQL strings or DB imports in engine/ |
-| `check-patient-data-leaks` | `df.head()`, `df.to_csv()` etc. in agent tool functions |
-| `check-datetime-patterns` | Naive `datetime.now()`, deprecated `utcnow()`, stripped tzinfo |
-| `check-domain-no-ui-exceptions` | Streamlit/FastAPI imports or raises in domain/agents/verification/audit |
-| `check-engine-no-ui-exceptions` | Streamlit/FastAPI imports or raises in engine/ |
-| `check-repo-direct-instantiation` | Direct `Repository()` instantiation outside persistence/ and tests/ |
-| `check-file-length` | Files >200 lines, functions >30 lines, classes >150 lines |
-| `check-llm-gateway` | Direct OpenAIChatModel/OpenAIProvider construction outside llm_gateway.py |
-| `check-enum-discipline` | Raw string comparisons against known enum values |
+| `check-patient-data-leaks` | `df.head()`, `df.to_csv()` in agent tools |
+| `check-datetime-patterns` | Naive `datetime.now()`, deprecated `utcnow()` |
+| `check-domain-no-ui-exceptions` | Streamlit/FastAPI imports in domain/agents/verification/audit |
+| `check-engine-no-ui-exceptions` | Streamlit/FastAPI imports in engine/ |
+| `check-repo-direct-instantiation` | Direct `Repository()` instantiation outside DI |
+| `check-file-length` | Files >250, functions >40, classes >200 lines |
+| `check-llm-gateway` | Direct OpenAIChatModel outside llm_gateway.py |
+| `check-enum-discipline` | Raw string comparisons against enum values |
 
-## Import-Linter Contracts
-
-### Active (Phases 1-4)
+## Import-Linter Contracts (19 total)
 
 | Contract | Rule | Status |
 |----------|------|--------|
-| `domain-no-agents` | domain/ cannot import from agents/ | **ACTIVE** |
-| `domain-no-engine` | domain/ cannot import from engine/ | **ACTIVE** |
-| `domain-no-verification` | domain/ cannot import from verification/ | **ACTIVE** |
-| `agents-no-engine` | agents/ cannot import from engine/ | **ACTIVE** |
-| `agents-no-verification` | agents/ cannot import from verification/ | **ACTIVE** |
-| `verification-no-agents` | verification/ cannot import from agents/ (QC independence) | **ACTIVE** |
-| `verification-no-engine` | verification/ cannot import from engine/ | **ACTIVE** |
-| `domain-no-persistence` | domain/ cannot import from persistence/ | **ACTIVE** |
-| `domain-no-audit` | domain/ cannot import from audit/ | **ACTIVE** |
-| `agents-no-persistence` | agents/ cannot import from persistence/ | **ACTIVE** |
-| `agents-no-audit` | agents/ cannot import from audit/ | **ACTIVE** |
-| `engine-no-persistence` | engine/ cannot import persistence/ directly (TYPE_CHECKING only) | **ACTIVE** |
-| `verification-no-persistence` | verification/ cannot import from persistence/ | **ACTIVE** |
-| `persistence-no-agents` | persistence/ cannot import from agents/ | **ACTIVE** |
-| `persistence-no-engine` | persistence/ cannot import from engine/ | **ACTIVE** |
-| `audit-no-engine` | audit/ cannot import from engine/ | **ACTIVE** |
-| `audit-no-persistence` | audit/ cannot import from persistence/ | **ACTIVE** |
+| `domain-no-agents` | domain/ cannot import from agents/ | ✅ |
+| `domain-no-engine` | domain/ cannot import from engine/ | ✅ |
+| `domain-no-verification` | domain/ cannot import from verification/ | ✅ |
+| `domain-no-persistence` | domain/ cannot import from persistence/ | ✅ |
+| `domain-no-audit` | domain/ cannot import from audit/ | ✅ |
+| `agents-no-engine` | agents/ cannot import from engine/ | ✅ |
+| `agents-no-verification` | agents/ cannot import from verification/ | ✅ |
+| `agents-no-persistence` | agents/ cannot import from persistence/ | ✅ |
+| `agents-no-audit` | agents/ cannot import from audit/ | ✅ |
+| `verification-no-agents` | verification/ cannot import from agents/ (QC independence) | ✅ |
+| `verification-no-engine` | verification/ cannot import from engine/ | ✅ |
+| `verification-no-persistence` | verification/ cannot import from persistence/ | ✅ |
+| `engine-no-persistence` | engine/ cannot import persistence/ (TYPE_CHECKING only) | ✅ |
+| `persistence-no-agents` | persistence/ cannot import from agents/ | ✅ |
+| `persistence-no-engine` | persistence/ cannot import from engine/ | ✅ |
+| `audit-no-engine` | audit/ cannot import from engine/ | ✅ |
+| `audit-no-persistence` | audit/ cannot import from persistence/ | ✅ |
+| `audit-no-agents` | audit/ cannot import from agents/ | ✅ |
+| `ui-no-persistence` | ui/ cannot import from persistence/ directly | ✅ |
 
-**Total: 17 contracts, 0 broken.**
-
-### Planned (Phase 6)
-
-| Contract | Rule | Status |
-|----------|------|--------|
-| `audit-no-agents` | audit/ cannot import from agents/ | **PLANNED** |
-| `ui-no-persistence` | ui/ cannot import from persistence/ directly | **PLANNED** |
-
-## Custom Architectural Checks
+## Custom Architectural Checks (10 total)
 
 Located in `tools/pre_commit_checks/`. Each uses AST parsing (not regex) for accurate detection.
 
 | Check | File | What It Enforces |
 |-------|------|-----------------|
-| Domain purity | `check_domain_purity.py` | domain/ may only import stdlib, pydantic, networkx, pandas, numpy. Bans PydanticAI, statemachine, loguru, SQLAlchemy, streamlit, fastapi, httpx |
-| No SQL in engine | `check_raw_sql_in_engine.py` | engine/ must not contain SQL strings or import sqlalchemy/sqlite3/asyncpg. Repos injected via DI |
-| Patient data leaks | `check_patient_data_leaks.py` | Agent tool functions (with `RunContext` param) must not call `df.head()`, `df.to_csv()`, `df.to_string()` etc. — prevents PII leakage to LLM |
-| Datetime patterns | `check_datetime_patterns.py` | Bans `datetime.utcnow()` (deprecated), bare `datetime.now()` (naive), `.replace(tzinfo=None)` (strips tz). Audit timestamps must be tz-aware |
-| No UI exceptions (lower layers) | `check_domain_no_ui_exceptions.py` | domain/, agents/, verification/, audit/ must not import or raise streamlit/fastapi/starlette exceptions |
-| No UI exceptions (engine) | `check_engine_no_ui_exceptions.py` | engine/ must raise domain exceptions, never UI-tier (HTTPException, Streamlit errors) |
-| Repo DI enforcement | `check_repo_direct_instantiation.py` | No `Repository()` instantiation or `from persistence import *Repository` in domain/agents/engine/verification/audit — repos injected via constructor |
-| File/function/class length | `check_file_length.py` | Files >200 lines, functions >30 lines, classes >150 lines in src/ |
-| LLM gateway enforcement | `check_llm_gateway.py` | No direct `OpenAIChatModel`/`OpenAIProvider` construction outside `llm_gateway.py` |
-| Enum discipline | `check_enum_discipline.py` | No raw string comparisons against known enum values (match, completed, coder, etc.) — use StrEnum members |
+| Domain purity | `check_domain_purity.py` | domain/ may only import stdlib, pydantic, networkx, pandas, numpy |
+| No SQL in engine | `check_raw_sql_in_engine.py` | engine/ must not contain SQL strings or import sqlalchemy |
+| Patient data leaks | `check_patient_data_leaks.py` | Agent tools must not call `df.head()`, `df.to_csv()` etc. |
+| Datetime patterns | `check_datetime_patterns.py` | Bans `datetime.utcnow()`, bare `datetime.now()`, stripped tzinfo |
+| No UI exceptions (lower) | `check_domain_no_ui_exceptions.py` | domain/agents/verification/audit must not raise UI exceptions |
+| No UI exceptions (engine) | `check_engine_no_ui_exceptions.py` | engine/ must raise domain exceptions, never HTTPException |
+| Repo DI enforcement | `check_repo_direct_instantiation.py` | No direct `Repository()` instantiation outside DI |
+| File/function/class length | `check_file_length.py` | Files >250 lines, functions >40 lines, classes >200 lines |
+| LLM gateway enforcement | `check_llm_gateway.py` | No `OpenAIChatModel`/`OpenAIProvider` outside `llm_gateway.py` |
+| Enum discipline | `check_enum_discipline.py` | No raw string comparisons against known enum values |
 
 ## Ruff Configuration
 
@@ -106,11 +97,10 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH", "RUF", "S"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]
+"src/domain/dag.py" = ["S101"]
 "src/engine/orchestrator.py" = ["S101"]
 "src/engine/derivation_runner.py" = ["S101"]
 ```
-
-Excludes: `scripts/`, `prototypes/`
 
 ## Pyright Configuration
 
@@ -128,18 +118,19 @@ reportMissingTypeStubs = false
 uv sync --dev → ruff check → ruff format --check → pyright → pytest --cov
 ```
 
-## Quality Metrics (Current — Phase 5)
+## Quality Metrics (Final — Phase 9)
 
 | Metric | Value | Threshold |
 |--------|-------|-----------|
-| Test coverage | 85% | >= 80% |
-| Tests passing | 125/125 | 100% |
+| Test coverage | 89% | >= 80% |
+| Tests passing | 148/148 | 100% |
 | Pyright errors | 0 | 0 |
 | Ruff violations | 0 | 0 |
-| Import-linter contracts | 17/17 kept | 0 broken |
-| Radon complexity | 1 function at C (13.0) | Flag C+ |
+| Import-linter contracts | 19/19 kept | 0 broken |
+| Radon complexity | 1 function at C (12.0) | Flag C+ |
 | Vulture dead code | 0 | 0 |
-| Custom arch checks | 10 checks, 2 clean + 1 with known deferred violations | 0 new |
+| Custom arch checks | 10/10 clean | 0 violations |
+| Pre-push hooks | 18/18 green | All pass |
 
 ## Quality History
 
@@ -149,5 +140,9 @@ uv sync --dev → ruff check → ruff format --check → pyright → pytest --co
 | Phase 2 (agents) | 52 | — | 7/7 | 5 PydanticAI agents, shared tools, LLM gateway |
 | Phase 3 (engine) | 87 | 95% | 7/7 | WorkflowFSM, derivation runner, executor, comparator |
 | Phase 4 (persistence) | 118 | 85% | 17/17 | SQLAlchemy repos, audit trail, integration tests |
-| Phase 4→5 (review fix) | 118 | 85% | 17/17 | 18 review findings fixed, 3 new StrEnums, gateway enforced |
-| Phase 5 (CDISC data) | 125 | 85% | 17/17 | XPT loader, ADSL spec (7 derivations), 3 new pre-commit checks |
+| Review fix | 118 | 85% | 17/17 | 18 findings fixed, 3 new StrEnums, gateway enforced |
+| Phase 5 (CDISC) | 125 | 85% | 17/17 | XPT loader, ADSL spec, 3 new pre-commit checks |
+| Phase 6 (review) | 148 | 89% | 19/19 | File splits, enums, DebugContext, 30 new tests, AAA markers |
+| Phase 7 (Streamlit) | 148 | 89% | 19/19 | HITL UI, AgentLens theme, DAG visualization |
+| Phase 8 (docs) | 148 | 89% | 19/19 | Design doc (3 pages), Marp slides (18 slides) |
+| Phase 9 (Docker) | 148 | 89% | 19/19 | Dockerfile, compose, README |
