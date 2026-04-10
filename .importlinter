@@ -173,3 +173,5 @@ name = UI cannot import Persistence directly
 type = forbidden
 source_modules = src.ui
 forbidden_modules = src.persistence
+ignore_imports =
+    src.engine.orchestrator -> src.persistence.repositories

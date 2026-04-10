@@ -19,7 +19,7 @@
 |-------|-------|--------|-------|
 | 5 | CDISC Pilot ADSL Spec + XPT Loader | ✅ Complete | 125 (+7) |
 | 6 | Review Fix — Deferred Items | ✅ Complete | 148 (+23) |
-| 7 | Streamlit HITL UI | ⏳ Pending | — |
+| 7 | Streamlit HITL UI | ✅ Complete | 148 (no new — UI not unit tested) |
 | 8 | Design Document + Presentation | ⏳ Pending | — |
 | 9 | Docker Compose + README | ⏳ Pending | — |
 
@@ -27,7 +27,7 @@
 
 ```
 Phase 5 ✅ ─┐
-             ├──► Phase 7 ──► Phase 8 ──► Phase 9
+             ├──► Phase 7 ✅ ──► Phase 8 ──► Phase 9
 Phase 6 ✅ ─┘         │
                        └──► Phase 9
 ```

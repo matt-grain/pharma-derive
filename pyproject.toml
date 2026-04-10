@@ -13,6 +13,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0,<3",
     "aiosqlite>=0.21,<1",
     "pyreadstat>=1.3,<2",
+    "streamlit>=1.40,<2",
 ]
 
 [project.optional-dependencies]
@@ -52,3 +53,6 @@ reportMissingTypeStubs = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+omit = ["src/ui/*"]  # Streamlit pages are integration-tested manually, not unit-testable
