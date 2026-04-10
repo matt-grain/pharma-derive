@@ -1,57 +1,41 @@
-# Implementation Plan — pharma-derive Engine
+# Implementation Plan — pharma-derive
 
-**Date:** 2026-04-08
-**Scope:** Spec-agnostic derivation engine with `simple_mock.yaml` test scenario
-**Out of scope:** CDISC data, Docker Compose, Streamlit UI, presentation
-**Agent type:** `python-fastapi` (closest match — Python + Pydantic + async + pytest)
-**Target:** Working end-to-end pipeline: YAML spec → DAG → agents → verify → audit trail
+**Date:** 2026-04-09 (updated — originally 2026-04-08)
+**Scope:** Full system — engine core (Phases 1-4, complete) + CDISC data, review fixes, Streamlit, docs, Docker (Phases 5-9)
 
----
+## Phases 1-4 (COMPLETE)
 
-## Phase Summary
+- Phase 1: Domain layer (models, DAG, spec parser) — 25 tests
+- Phase 2: Agent definitions (5 PydanticAI agents, shared tools, LLM gateway) — 27 tests
+- Phase 3: Orchestration (WorkflowFSM, derivation runner, executor, comparator) — 35 tests
+- Phase 4: Persistence (SQLAlchemy), audit trail, integration tests — 31 tests
 
-| Phase | Title | Files | Depends On | Agent |
-|-------|-------|-------|-----------|-------|
-| **1** | Project Setup + Domain Layer | 14 new | — | `python-fastapi` |
-| **2** | Agent Definitions + LLM Gateway | 9 new | Phase 1 | `python-fastapi` |
-| **3** | Orchestration Engine + Verification | 9 new | Phase 1 + 2 | `python-fastapi` |
-| **4** | Memory + Audit + Integration Test | 10 new, 1 modified | Phase 1 + 2 + 3 | `python-fastapi` |
+**Status:** 118 tests | 85% coverage | 17 import contracts | all green
+**Review:** Architecture review completed, 18/18 critical+warning fixes applied.
 
-**Total:** 42 new files + 1 modified, 4 phases, ~2 implementation sessions
+## Phases 5-9 (PLANNED)
 
----
+| Phase | Title | Files | Agent | Dependencies |
+|-------|-------|-------|-------|-------------|
+| 5 | CDISC Pilot ADSL Spec + XPT Loader | ~6 | general-purpose | None |
+| 6 | Review Fix — Deferred Items | ~18 | general-purpose | None (parallel-safe with 5) |
+| 7 | Streamlit HITL UI | ~6 | general-purpose | Phase 5 (real data for demo) |
+| 8 | Design Document + Presentation | ~3 | general-purpose | Phases 5-7 (content) |
+| 9 | Docker Compose + README | ~4 | general-purpose | Phase 7 (full app) |
 
 ## Cross-Phase Dependencies
 
 ```
-Phase 1 (Domain)
-  ├── models.py         → used by ALL other phases
-  ├── dag.py            → used by Phase 3 (orchestrator)
-  ├── spec_parser.py    → used by Phase 3 (orchestrator)
-  └── test fixtures     → used by ALL test files
-         │
-Phase 2 (Agents)
-  ├── agent definitions → used by Phase 3 (orchestrator dispatches them)
-  ├── tools.py          → shared tools for coder + QC agents
-  └── llm_gateway.py    → used by Phase 3 orchestrator
-         │
-Phase 3 (Engine + Verification)
-  ├── domain/executor.py → code execution + comparison (domain layer)
-  ├── orchestrator.py    → used by Phase 4 (integration test)
-  ├── comparator.py      → uses domain/executor.py (no layer violation)
-  └── logging.py         → loguru configuration
-         │
-Phase 4 (Memory + Audit + Integration)
-  ├── memory layers     → used by Phase 3 orchestrator (wired in)
-  ├── audit trail       → captures full workflow provenance
-  └── integration test  → end-to-end validation
+Phase 5 ──┐
+           ├──► Phase 7 ──► Phase 8 ──► Phase 9
+Phase 6 ──┘         │
+                     └──► Phase 9
 ```
-
----
 
 ## Per-Phase Plan Files
 
-- [`IMPLEMENTATION_PLAN_PHASE_1.md`](IMPLEMENTATION_PLAN_PHASE_1.md) — Project setup, domain models, DAG, spec parser, test fixtures
-- [`IMPLEMENTATION_PLAN_PHASE_2.md`](IMPLEMENTATION_PLAN_PHASE_2.md) — PydanticAI agent definitions, tools, LLM gateway
-- [`IMPLEMENTATION_PLAN_PHASE_3.md`](IMPLEMENTATION_PLAN_PHASE_3.md) — Orchestrator FSM, DAG executor, QC comparator
-- [`IMPLEMENTATION_PLAN_PHASE_4.md`](IMPLEMENTATION_PLAN_PHASE_4.md) — Memory (short+long term), audit trail, integration test
+- `IMPLEMENTATION_PLAN_PHASE_5.md` — CDISC data + XPT loader
+- `IMPLEMENTATION_PLAN_PHASE_6.md` — Deferred review fixes (file splits, tests, enums)
+- `IMPLEMENTATION_PLAN_PHASE_7.md` — Streamlit HITL UI
+- `IMPLEMENTATION_PLAN_PHASE_8.md` — Design doc + presentation slides
+- `IMPLEMENTATION_PLAN_PHASE_9.md` — Docker Compose + README
