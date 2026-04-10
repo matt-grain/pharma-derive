@@ -19,6 +19,7 @@ class WorkflowCreateResponse(BaseModel, frozen=True):
 class WorkflowStatusResponse(BaseModel, frozen=True):
     workflow_id: str
     status: str
+    study: str | None = None
     started_at: str | None = None
     completed_at: str | None = None
     derived_variables: list[str] = []

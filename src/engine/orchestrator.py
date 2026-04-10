@@ -122,12 +122,29 @@ class DerivationOrchestrator:
         if self._state_repo is None:
             return
         fsm_state = str(self._fsm.current_state_value or "unknown")
+        dag = self._state.dag
+        dag_nodes = {}
+        if dag:
+            for var in dag.execution_order:
+                node = dag.get_node(var)
+                dag_nodes[var] = {
+                    "status": node.status.value,
+                    "layer": node.layer,
+                    "coder_code": node.coder_code,
+                    "qc_code": node.qc_code,
+                    "qc_verdict": node.qc_verdict.value if node.qc_verdict else None,
+                    "approved_code": node.approved_code,
+                    "dependencies": dag.get_dependencies(var),
+                }
+        study = self._state.spec.metadata.study if self._state.spec else None
         state_json = json.dumps(
             {
                 "workflow_id": self._state.workflow_id,
                 "status": fsm_state,
-                "derived_variables": list(self._state.dag.nodes if self._state.dag else {}),
+                "study": study,
+                "derived_variables": list(dag.nodes if dag else {}),
                 "errors": self._state.errors,
+                "dag_nodes": dag_nodes,
             }
         )
         await self._state_repo.save(
@@ -165,6 +182,10 @@ class DerivationOrchestrator:
         for idx, layer in enumerate(layers):
             self._fsm.start_verifying()
             await asyncio.gather(*[self._derive_variable(v) for v in layer])
+            # Persist outcomes sequentially AFTER parallel derivation completes
+            # (SQLAlchemy async session cannot handle concurrent flush calls)
+            for v in layer:
+                await self._record_derivation_outcome(v)
             if idx < len(layers) - 1:
                 self._fsm.next_variable()
 
@@ -180,7 +201,6 @@ class DerivationOrchestrator:
             synthetic_csv=self._state.synthetic_csv,
             llm_base_url=self._llm_base_url,
         )
-        await self._record_derivation_outcome(variable)
 
     async def _record_derivation_outcome(self, variable: str) -> None:
         """Record an audit entry and persist QC/pattern data for a derivation outcome."""

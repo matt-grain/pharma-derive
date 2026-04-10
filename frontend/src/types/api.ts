@@ -1,6 +1,7 @@
 export interface WorkflowStatus {
   workflow_id: string
   status: string
+  study: string | null
   started_at: string | null
   completed_at: string | null
   derived_variables: string[]

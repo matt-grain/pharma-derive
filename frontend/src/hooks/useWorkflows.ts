@@ -52,6 +52,7 @@ export function useWorkflowAudit(id: string) {
   return useQuery({
     queryKey: ['workflow', id, 'audit'],
     queryFn: () => api.getWorkflowAudit(id),
+    enabled: id.length > 0,
   })
 }
 
@@ -59,6 +60,7 @@ export function useWorkflowDag(id: string) {
   return useQuery({
     queryKey: ['workflow', id, 'dag'],
     queryFn: () => api.getWorkflowDag(id),
+    enabled: id.length > 0,
   })
 }
 

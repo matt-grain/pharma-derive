@@ -20,12 +20,19 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 
+_mcp_app = mcp_server.http_app()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """Initialize WorkflowManager on startup."""
-    app.state.workflow_manager = WorkflowManager()
+    """Initialize WorkflowManager and MCP server on startup."""
+    manager = WorkflowManager()
+    await manager.load_history()
+    app.state.workflow_manager = manager
     set_app_ref(app)
-    yield
+    # Chain the MCP server lifespan so its StreamableHTTP task group initializes
+    async with _mcp_app.lifespan(_mcp_app):
+        yield
 
 
 def create_app() -> FastAPI:
@@ -47,7 +54,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(workflows_router)
     app.include_router(specs_router)
-    app.mount("/mcp", mcp_server.http_app())
+    app.mount("/mcp", _mcp_app)
     return app
 
 

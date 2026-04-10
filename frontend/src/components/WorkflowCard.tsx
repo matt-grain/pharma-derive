@@ -26,7 +26,12 @@ export function WorkflowCard({ workflow }: WorkflowCardProps) {
     >
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
-          <code className="truncate text-xs text-slate-500">{workflow.workflow_id.slice(0, 16)}…</code>
+          <div className="min-w-0">
+            {workflow.study && (
+              <div className="truncate text-sm font-semibold text-slate-800">{workflow.study}</div>
+            )}
+            <code className="truncate text-xs text-slate-500">{workflow.workflow_id.slice(0, 12)}</code>
+          </div>
           <StatusBadge status={workflow.status} />
         </div>
       </CardHeader>

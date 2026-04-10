@@ -57,10 +57,19 @@ export function WorkflowDetailPage() {
 
       <div className="mb-2 flex items-center gap-4">
         <h1 className="text-xl font-semibold text-slate-900">
-          Workflow{' '}
-          <code className="rounded bg-slate-100 px-2 py-0.5 text-base">
-            {workflowId.slice(0, 16)}…
-          </code>
+          {status.study ? (
+            <>{status.study}{' '}
+              <code className="rounded bg-slate-100 px-2 py-0.5 text-sm font-normal text-slate-500">
+                {workflowId.slice(0, 8)}
+              </code>
+            </>
+          ) : (
+            <>Workflow{' '}
+              <code className="rounded bg-slate-100 px-2 py-0.5 text-base">
+                {workflowId.slice(0, 16)}
+              </code>
+            </>
+          )}
         </h1>
         <StatusBadge status={status.status} />
       </div>

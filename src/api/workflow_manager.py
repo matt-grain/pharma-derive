@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -13,11 +14,25 @@ from src.domain.workflow_models import (
     WorkflowResult,  # noqa: TC001 — used in asyncio.Task[WorkflowResult] dict type, not just annotations
 )
 from src.factory import create_orchestrator
+from src.persistence.database import init_db
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from src.engine.orchestrator import DerivationOrchestrator
+
+
+class _HistoricState:
+    """Lightweight stand-in for a DerivationOrchestrator loaded from DB history."""
+
+    def __init__(self, workflow_id: str, fsm_state: str, state_json: str) -> None:
+        data = json.loads(state_json)
+        self.workflow_id = workflow_id
+        self.fsm_state = fsm_state
+        self.study: str | None = data.get("study")
+        self.derived_variables: list[str] = data.get("derived_variables", [])
+        self.errors: list[str] = data.get("errors", [])
+        self.dag_nodes: dict[str, dict[str, object]] = data.get("dag_nodes", {})
 
 
 class WorkflowManager:
@@ -28,6 +43,24 @@ class WorkflowManager:
         self._orchestrators: dict[str, DerivationOrchestrator] = {}
         self._sessions: dict[str, AsyncSession] = {}
         self._results: dict[str, WorkflowResult] = {}
+        self._history: dict[str, _HistoricState] = {}
+
+    async def load_history(self) -> None:
+        """Load completed/failed workflows from DB so they appear in listings after restart."""
+        from sqlalchemy import select
+
+        from src.persistence.orm_models import WorkflowStateRow
+
+        session_factory = await init_db()
+        async with session_factory() as session:
+            result = await session.execute(select(WorkflowStateRow))
+            for row in result.scalars():
+                self._history[row.workflow_id] = _HistoricState(
+                    row.workflow_id,
+                    row.fsm_state,
+                    row.state_json,
+                )
+        logger.info("Loaded {n} historic workflows from DB", n=len(self._history))
 
     async def start_workflow(
         self,
@@ -67,8 +100,12 @@ class WorkflowManager:
             self._sessions.pop(wf_id, None)
 
     def get_orchestrator(self, workflow_id: str) -> DerivationOrchestrator | None:
-        """Get orchestrator for a workflow (active or completed)."""
+        """Get orchestrator for a workflow (active or in-memory completed)."""
         return self._orchestrators.get(workflow_id)
+
+    def get_historic(self, workflow_id: str) -> _HistoricState | None:
+        """Get lightweight historic state loaded from DB."""
+        return self._history.get(workflow_id)
 
     def get_result(self, workflow_id: str) -> WorkflowResult | None:
         """Get result for a completed workflow."""
@@ -78,14 +115,18 @@ class WorkflowManager:
         """Check if a workflow is still running."""
         return workflow_id in self._active
 
+    def is_known(self, workflow_id: str) -> bool:
+        """Check if workflow exists in any state (active, completed, or historic)."""
+        return workflow_id in self._orchestrators or workflow_id in self._history
+
     @property
     def active_count(self) -> int:
         """Number of currently running workflows."""
         return len(self._active)
 
     def list_workflow_ids(self) -> list[str]:
-        """All known workflow IDs (active + completed)."""
-        return list({*self._active.keys(), *self._results.keys()})
+        """All known workflow IDs (active + completed + historic)."""
+        return list({*self._active.keys(), *self._results.keys(), *self._history.keys()})
 
     async def cancel_active(self) -> None:
         """Cancel all running workflows. Used for graceful shutdown and test cleanup."""

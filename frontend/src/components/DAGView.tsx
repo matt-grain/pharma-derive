@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import ReactFlow, {
   Background,
   Controls,
+  Handle,
+  MarkerType,
   MiniMap,
+  Position,
   addEdge,
   useEdgesState,
   useNodesState,
@@ -40,7 +43,8 @@ function buildLayout(dagNodes: DAGNode[]): { nodes: Node[]; edges: Edge[] } {
         source: dep,
         target: n.variable,
         animated: n.status === 'in_progress' || n.status === 'verifying',
-        style: { stroke: '#94a3b8', strokeWidth: 1.5 },
+        style: { stroke: '#64748b', strokeWidth: 2 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b', width: 16, height: 16 },
       })
     })
   })
@@ -73,16 +77,19 @@ function buildLayout(dagNodes: DAGNode[]): { nodes: Node[]; edges: Edge[] } {
 function DAGNodeContent({ data }: { data: { dagNode: DAGNode } }) {
   const { dagNode } = data
   return (
-    <div className="flex h-full flex-col justify-between">
-      <span className="truncate text-xs font-semibold text-slate-800">{dagNode.variable}</span>
-      <StatusBadge status={dagNode.status} />
-    </div>
+    <>
+      <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
+      <div className="flex h-full flex-col justify-between">
+        <span className="truncate text-xs font-semibold text-slate-800">{dagNode.variable}</span>
+        <StatusBadge status={dagNode.status} />
+      </div>
+      <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
+    </>
   )
 }
 
-const nodeTypes = { default: DAGNodeContent }
-
 export function DAGView({ nodes: dagNodes, onNodeClick }: DAGViewProps) {
+  const nodeTypes = useMemo(() => ({ default: DAGNodeContent }), [])
   const { nodes: layoutNodes, edges: layoutEdges } = buildLayout(dagNodes)
   const [nodes, setNodes, onNodesChange] = useNodesState(layoutNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(layoutEdges)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
@@ -17,6 +19,7 @@ from src.api.schemas import (
     WorkflowResultResponse,
     WorkflowStatusResponse,
 )
+from src.config.settings import get_settings
 
 if TYPE_CHECKING:
     from src.domain.dag import DerivationDAG
@@ -30,8 +33,12 @@ async def start_workflow(
     manager: WorkflowManagerDep,
 ) -> WorkflowCreateResponse:
     """Start a new derivation workflow as a background task."""
+    # Normalize: accept both "simple_mock.yaml" and "specs/simple_mock.yaml"
+    spec_path = payload.spec_path
+    if not spec_path.startswith("specs/"):
+        spec_path = f"specs/{spec_path}"
     wf_id = await manager.start_workflow(
-        spec_path=payload.spec_path,
+        spec_path=spec_path,
         llm_base_url=payload.llm_base_url,
     )
     return WorkflowCreateResponse(
@@ -53,7 +60,7 @@ async def get_workflow_status(
     manager: WorkflowManagerDep,
 ) -> WorkflowStatusResponse:
     """Get the current status of a single workflow."""
-    if manager.get_orchestrator(workflow_id) is None:
+    if not manager.is_known(workflow_id):
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
     return _build_status_response(workflow_id, manager)
 
@@ -64,23 +71,38 @@ async def get_workflow_result(
     manager: WorkflowManagerDep,
 ) -> WorkflowResultResponse:
     """Return the full result for a completed workflow (409 if still running)."""
-    if manager.get_orchestrator(workflow_id) is None:
-        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
     if manager.is_running(workflow_id):
         raise HTTPException(status_code=409, detail="Workflow is still running")
+
+    # In-memory result (current session)
     result = manager.get_result(workflow_id)
-    if result is None:
-        raise HTTPException(status_code=404, detail=f"No result for workflow {workflow_id!r}")
-    return WorkflowResultResponse(
-        workflow_id=result.workflow_id,
-        study=result.study,
-        status=result.status.value,
-        derived_variables=result.derived_variables,
-        qc_summary=result.qc_summary,
-        audit_summary=result.audit_summary.model_dump() if result.audit_summary else None,
-        errors=result.errors,
-        duration_seconds=result.duration_seconds,
-    )
+    if result is not None:
+        return WorkflowResultResponse(
+            workflow_id=result.workflow_id,
+            study=result.study,
+            status=result.status.value,
+            derived_variables=result.derived_variables,
+            qc_summary=result.qc_summary,
+            audit_summary=result.audit_summary.model_dump() if result.audit_summary else None,
+            errors=result.errors,
+            duration_seconds=result.duration_seconds,
+        )
+
+    # Fallback: reconstruct from DB history
+    hist = manager.get_historic(workflow_id)
+    if hist is not None:
+        qc_summary = {var: str(node.get("qc_verdict", "unknown")) for var, node in hist.dag_nodes.items()}
+        return WorkflowResultResponse(
+            workflow_id=workflow_id,
+            study=hist.study or "unknown",
+            status=hist.fsm_state,
+            derived_variables=hist.derived_variables,
+            qc_summary=qc_summary,
+            errors=hist.errors,
+            duration_seconds=0.0,
+        )
+
+    raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
 
 
 @router.get("/{workflow_id}/audit", response_model=list[AuditRecordOut], status_code=200)
@@ -88,21 +110,30 @@ async def get_workflow_audit(
     workflow_id: str,
     manager: WorkflowManagerDep,
 ) -> list[AuditRecordOut]:
-    """Return the full audit trail for a workflow."""
+    """Return the full audit trail — from memory or from persisted JSON file."""
     orch = manager.get_orchestrator(workflow_id)
-    if orch is None:
+    if orch is not None:
+        return [
+            AuditRecordOut(
+                timestamp=rec.timestamp,
+                workflow_id=rec.workflow_id,
+                variable=rec.variable,
+                action=rec.action,
+                agent=rec.agent,
+                details=rec.details,
+            )
+            for rec in orch.audit_trail.records
+        ]
+
+    # Fallback: load from persisted audit JSON file
+    audit_path = Path(get_settings().output_dir) / f"{workflow_id}_audit.json"
+    if audit_path.exists():
+        records = json.loads(audit_path.read_text(encoding="utf-8"))
+        return [AuditRecordOut(**r) for r in records]
+
+    if not manager.is_known(workflow_id):
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
-    return [
-        AuditRecordOut(
-            timestamp=rec.timestamp,
-            workflow_id=rec.workflow_id,
-            variable=rec.variable,
-            action=rec.action,
-            agent=rec.agent,
-            details=rec.details,
-        )
-        for rec in orch.audit_trail.records
-    ]
+    return []
 
 
 @router.get("/{workflow_id}/dag", response_model=list[DAGNodeOut], status_code=200)
@@ -110,14 +141,34 @@ async def get_workflow_dag(
     workflow_id: str,
     manager: WorkflowManagerDep,
 ) -> list[DAGNodeOut]:
-    """Return all DAG nodes with their current derivation status."""
+    """Return all DAG nodes — from memory or from persisted DB state."""
     orch = manager.get_orchestrator(workflow_id)
-    if orch is None:
+    if orch is not None:
+        dag = orch.state.dag
+        if dag is None:
+            return []
+        return [_dag_node_out(dag, var) for var in dag.execution_order]
+
+    # Fallback: load from persisted dag_nodes in DB history
+    hist = manager.get_historic(workflow_id)
+    if hist is not None and hist.dag_nodes:
+        return [
+            DAGNodeOut(
+                variable=var,
+                status=str(node.get("status", "unknown")),
+                layer=int(node.get("layer") or 0),  # type: ignore[arg-type]  # JSON parsed as object
+                coder_code=node.get("coder_code"),  # type: ignore[arg-type]  # dict values are object
+                qc_code=node.get("qc_code"),  # type: ignore[arg-type]
+                qc_verdict=node.get("qc_verdict"),  # type: ignore[arg-type]
+                approved_code=node.get("approved_code"),  # type: ignore[arg-type]
+                dependencies=list(node.get("dependencies", [])),  # type: ignore[arg-type]
+            )
+            for var, node in hist.dag_nodes.items()
+        ]
+
+    if not manager.is_known(workflow_id):
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
-    dag = orch.state.dag
-    if dag is None:
-        return []
-    return [_dag_node_out(dag, var) for var in dag.execution_order]
+    return []
 
 
 def _dag_node_out(dag: DerivationDAG, var: str) -> DAGNodeOut:
@@ -137,23 +188,31 @@ def _dag_node_out(dag: DerivationDAG, var: str) -> DAGNodeOut:
 
 
 def _build_status_response(workflow_id: str, manager: WorkflowManagerDep) -> WorkflowStatusResponse:
-    """Build a WorkflowStatusResponse from orchestrator and result state."""
+    """Build a WorkflowStatusResponse from orchestrator, result, or DB history."""
     orch = manager.get_orchestrator(workflow_id)
-    if orch is None:
-        return WorkflowStatusResponse(workflow_id=workflow_id, status="unknown")
+    if orch is not None:
+        status = str(orch.fsm.current_state_value or "unknown")
+        state = orch.state
+        result = manager.get_result(workflow_id)
+        return WorkflowStatusResponse(
+            workflow_id=workflow_id,
+            status=status,
+            study=state.spec.metadata.study if state.spec else None,
+            started_at=state.started_at,
+            completed_at=state.completed_at,
+            derived_variables=result.derived_variables if result else [],
+            errors=result.errors if result else state.errors,
+        )
 
-    status = str(orch.fsm.current_state_value or "unknown")
-    state = orch.state
-    result = manager.get_result(workflow_id)
+    # Fallback to DB history (survives restarts)
+    hist = manager.get_historic(workflow_id)
+    if hist is not None:
+        return WorkflowStatusResponse(
+            workflow_id=workflow_id,
+            status=hist.fsm_state,
+            study=hist.study,
+            derived_variables=hist.derived_variables,
+            errors=hist.errors,
+        )
 
-    derived = result.derived_variables if result else []
-    errors = result.errors if result else state.errors
-
-    return WorkflowStatusResponse(
-        workflow_id=workflow_id,
-        status=status,
-        started_at=state.started_at,
-        completed_at=state.completed_at,
-        derived_variables=derived,
-        errors=errors,
-    )
+    return WorkflowStatusResponse(workflow_id=workflow_id, status="unknown")
