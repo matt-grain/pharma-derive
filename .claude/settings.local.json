@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__anima__memory",
+      "Bash(uv sync:*)",
+      "Bash(uv add:*)",
+      "Bash(pip show:*)",
+      "Bash(python -c \"from statemachine import StateMachine, State; print\\('import OK'\\)\")",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d['messages'][0]['content'][:80]\\)\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Role:', d['messages'][0]['content'][:40]\\); print\\('Variable:', d['messages'][1]['content'][:60]\\)\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d['messages'][0]['content'][:40]\\)\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d['messages'][0]['content'][:80]\\); print\\('---'\\); print\\(d['messages'][1]['content'][:200]\\)\")",
+      "Bash(python -c ':*)",
+      "Bash(awk -F'/' '{print NF, $0}')",
+      "Bash(awk -F/ '{depth=0; for\\(i=1;i<=NF;i++\\) if\\($i ~ /\\\\.py$/\\) depth=NF; print depth, $0}')",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(awk:*)",
+      "Bash(python -c \"import sys,json; print\\(json.load\\(sys.stdin\\)['messages'][0]['content'][:50]\\)\")",
+      "Bash(python -c \"import sys,json; traces=json.load\\(sys.stdin\\); print\\(f'Traces: {len\\(traces\\)}'\\); [print\\(f'  {t[\\\\\"id\\\\\"][:12]}... task={t[\\\\\"task\\\\\"][:50]} spans={len\\(t[\\\\\"spans\\\\\"]\\)}'\\) for t in traces]\")",
+      "Bash(python -c \"import sys,json; print\\('QC' if 'QC' in json.load\\(sys.stdin\\)['messages'][0]['content'] else 'Coder'\\)\")",
+      "Bash(git mv:*)",
+      "Bash(git status:*)"
+    ]
+  }
+}

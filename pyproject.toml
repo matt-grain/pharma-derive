@@ -34,6 +34,7 @@ dev = [
 [tool.ruff]
 target-version = "py313"
 line-length = 120
+exclude = [".claude"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH", "RUF", "S", "T20", "C4", "RET"]
