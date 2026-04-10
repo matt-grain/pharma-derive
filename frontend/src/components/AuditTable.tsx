@@ -42,8 +42,13 @@ export function AuditTable({ records }: AuditTableProps) {
               <TableCell className="font-medium text-slate-800">{r.variable}</TableCell>
               <TableCell className="text-slate-600">{r.action}</TableCell>
               <TableCell className="text-slate-600">{r.agent}</TableCell>
-              <TableCell className="max-w-xs truncate font-mono text-xs text-slate-400">
-                {JSON.stringify(r.details)}
+              <TableCell className="max-w-md whitespace-normal font-mono text-xs text-slate-500">
+                {Object.entries(r.details).map(([k, v]) => (
+                  <div key={k}>
+                    <span className="text-slate-400">{k}:</span>{' '}
+                    <span className="text-slate-700">{String(v)}</span>
+                  </div>
+                ))}
               </TableCell>
             </TableRow>
           ))}

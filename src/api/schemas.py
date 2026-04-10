@@ -20,6 +20,7 @@ class WorkflowStatusResponse(BaseModel, frozen=True):
     workflow_id: str
     status: str
     study: str | None = None
+    awaiting_approval: bool = False
     started_at: str | None = None
     completed_at: str | None = None
     derived_variables: list[str] = []

@@ -60,6 +60,7 @@ class DerivationOrchestrator:
         self._fsm = WorkflowFSM(workflow_id=uuid4().hex[:8])
         self._state = WorkflowState(workflow_id=self._fsm.workflow_id)
         self._audit_trail = AuditTrail(self._fsm.workflow_id)
+        self._approval_event = asyncio.Event()
 
     @property
     def state(self) -> WorkflowState:
@@ -72,6 +73,21 @@ class DerivationOrchestrator:
     @property
     def audit_trail(self) -> AuditTrail:
         return self._audit_trail
+
+    @property
+    def awaiting_approval(self) -> bool:
+        """True if the workflow is paused at the review gate waiting for human approval."""
+        return self._fsm.current_state_value == "review" and not self._approval_event.is_set()
+
+    def approve(self) -> None:
+        """Release the HITL gate — workflow proceeds to audit step."""
+        self._audit_trail.record(
+            variable="",
+            action="human_approved",
+            agent="human",
+            details={"gate": "review", "action": "approved all derivations"},
+        )
+        self._approval_event.set()
 
     async def run(self) -> WorkflowResult:
         """Execute the full derivation workflow end-to-end."""
@@ -86,6 +102,9 @@ class DerivationOrchestrator:
             source_cols = list(self._state.derived_df.columns) if self._state.derived_df is not None else []
             await self._step_derive_all()
             self._fsm.finish_review_from_verify()
+            # HITL gate: workflow pauses at review state until human approves
+            logger.info("Workflow {wf_id} waiting for human approval", wf_id=self._state.workflow_id)
+            await self._approval_event.wait()
             await self._step_audit()
             self._fsm.finish()
         except CDDEError as exc:

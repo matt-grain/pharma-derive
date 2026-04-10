@@ -10,6 +10,7 @@ const STATUS_COLOR_MAP: Record<string, StatusColor> = {
   in_progress: 'amber',
   verifying: 'amber',
   running: 'amber',
+  review: 'amber',
   qc_mismatch: 'red',
   failed: 'red',
   error: 'red',

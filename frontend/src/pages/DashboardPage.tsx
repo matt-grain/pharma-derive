@@ -1,13 +1,22 @@
 import { useState } from 'react'
-import { Plus, Activity } from 'lucide-react'
+import { Plus, Activity, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { WorkflowCard } from '@/components/WorkflowCard'
 import { NewWorkflowDialog } from '@/components/NewWorkflowDialog'
-import { useWorkflows } from '@/hooks/useWorkflows'
+import { useWorkflows, useDeleteWorkflow } from '@/hooks/useWorkflows'
 
 export function DashboardPage() {
   const { data: workflows, isLoading, error } = useWorkflows()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const { mutate: deleteWorkflow } = useDeleteWorkflow()
 
   const active = workflows?.filter((w) => !['completed', 'failed'].includes(w.status)) ?? []
   const completed = workflows?.filter((w) => ['completed', 'failed'].includes(w.status)) ?? []
@@ -57,7 +66,7 @@ export function DashboardPage() {
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {active.map((w) => (
-              <WorkflowCard key={w.workflow_id} workflow={w} />
+              <WorkflowCard key={w.workflow_id} workflow={w} onDelete={setDeleteTarget} />
             ))}
           </div>
         </section>
@@ -71,7 +80,7 @@ export function DashboardPage() {
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {completed.map((w) => (
-              <WorkflowCard key={w.workflow_id} workflow={w} />
+              <WorkflowCard key={w.workflow_id} workflow={w} onDelete={setDeleteTarget} />
             ))}
           </div>
         </section>
@@ -85,6 +94,30 @@ export function DashboardPage() {
       )}
 
       <NewWorkflowDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 size={16} className="text-red-500" />
+              Delete Workflow
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-600">
+            This will permanently remove the workflow, its audit trail, and derived ADaM output.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => { if (deleteTarget) { deleteWorkflow(deleteTarget); setDeleteTarget(null) } }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

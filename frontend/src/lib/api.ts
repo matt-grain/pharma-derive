@@ -46,4 +46,12 @@ export const api = {
 
   getWorkflowDag: (id: string): Promise<DAGNode[]> =>
     fetchJson<DAGNode[]>(`${BASE}/workflows/${id}/dag`),
+
+  approveWorkflow: (id: string): Promise<WorkflowStatus> =>
+    fetchJson<WorkflowStatus>(`${BASE}/workflows/${id}/approve`, { method: 'POST' }),
+
+  deleteWorkflow: async (id: string): Promise<void> => {
+    const res = await fetch(`${BASE}/workflows/${id}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`API error ${res.status}: ${res.statusText}`)
+  },
 }

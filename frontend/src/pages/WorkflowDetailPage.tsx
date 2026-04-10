@@ -8,7 +8,7 @@ import { StatusTab } from '@/components/StatusTab'
 import { DAGView } from '@/components/DAGView'
 import { CodePanel } from '@/components/CodePanel'
 import { AuditTable } from '@/components/AuditTable'
-import { useWorkflowStatus, useWorkflowDag, useWorkflowAudit, useWorkflowResult } from '@/hooks/useWorkflows'
+import { useWorkflowStatus, useWorkflowDag, useWorkflowAudit, useWorkflowResult, useApproveWorkflow } from '@/hooks/useWorkflows'
 
 const TERMINAL = ['completed', 'failed']
 
@@ -22,6 +22,7 @@ export function WorkflowDetailPage() {
   const { data: auditRecords } = useWorkflowAudit(workflowId)
   const isTerminal = TERMINAL.includes(status?.status ?? '')
   const { data: result } = useWorkflowResult(workflowId, isTerminal)
+  const { mutate: approve, isPending: isApproving } = useApproveWorkflow(workflowId)
 
   if (isLoading) {
     return (
@@ -96,6 +97,25 @@ export function WorkflowDetailPage() {
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             {status.errors.map((e, i) => <p key={i}>{e}</p>)}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {status.awaiting_approval && (
+        <Alert className="mb-6 border-amber-300 bg-amber-50">
+          <CheckCircle2 className="h-4 w-4 text-amber-600" />
+          <AlertDescription className="flex items-center justify-between">
+            <span className="text-amber-800">
+              All derivations complete — review the DAG and code, then approve to proceed to audit.
+            </span>
+            <Button
+              size="sm"
+              className="ml-4 bg-emerald-600 hover:bg-emerald-700"
+              onClick={() => approve()}
+              disabled={isApproving}
+            >
+              {isApproving ? 'Approving...' : 'Approve & Run Audit'}
+            </Button>
           </AlertDescription>
         </Alert>
       )}

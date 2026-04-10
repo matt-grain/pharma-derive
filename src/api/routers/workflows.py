@@ -55,6 +55,18 @@ async def list_workflows(manager: WorkflowManagerDep) -> list[WorkflowStatusResp
     return [_build_status_response(wf_id, manager) for wf_id in manager.list_workflow_ids()]
 
 
+@router.post("/{workflow_id}/approve", status_code=200)
+async def approve_workflow(workflow_id: str, manager: WorkflowManagerDep) -> WorkflowStatusResponse:
+    """Approve a workflow at the HITL review gate — releases it to proceed to audit."""
+    orch = manager.get_orchestrator(workflow_id)
+    if orch is None:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
+    if not orch.awaiting_approval:
+        raise HTTPException(status_code=409, detail="Workflow is not awaiting approval")
+    orch.approve()
+    return _build_status_response(workflow_id, manager)
+
+
 @router.delete("/{workflow_id}", status_code=204)
 async def delete_workflow(workflow_id: str, manager: WorkflowManagerDep) -> None:
     """Delete a workflow from history. Removes DB state and output files."""
@@ -222,9 +234,10 @@ def _build_status_response(workflow_id: str, manager: WorkflowManagerDep) -> Wor
             workflow_id=workflow_id,
             status=status,
             study=state.spec.metadata.study if state.spec else None,
+            awaiting_approval=orch.awaiting_approval,
             started_at=state.started_at,
             completed_at=state.completed_at,
-            derived_variables=result.derived_variables if result else [],
+            derived_variables=result.derived_variables if result else list(state.dag.nodes.keys()) if state.dag else [],
             errors=result.errors if result else state.errors,
         )
 

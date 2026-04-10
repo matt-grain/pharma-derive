@@ -73,3 +73,23 @@ export function useStartWorkflow() {
     },
   })
 }
+
+export function useApproveWorkflow(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.approveWorkflow(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workflow', id] })
+    },
+  })
+}
+
+export function useDeleteWorkflow() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteWorkflow(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workflows'] })
+    },
+  })
+}

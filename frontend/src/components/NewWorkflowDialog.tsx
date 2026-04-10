@@ -40,7 +40,7 @@ export function NewWorkflowDialog({ open, onOpenChange }: NewWorkflowDialogProps
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Start New Workflow</DialogTitle>
         </DialogHeader>
@@ -48,14 +48,13 @@ export function NewWorkflowDialog({ open, onOpenChange }: NewWorkflowDialogProps
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-slate-700">Select Specification</label>
             <Select value={selectedSpec} onValueChange={(v) => setSelectedSpec(v ?? '')}>
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder={specsLoading ? 'Loading specs...' : 'Choose a spec file'} />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent sideOffset={4}>
                 {specs?.map((spec) => (
                   <SelectItem key={spec.filename} value={spec.filename}>
-                    <span className="font-medium">{spec.study}</span>
-                    <span className="ml-2 text-slate-400">({spec.derivation_count} derivations)</span>
+                    {spec.study} — {spec.derivation_count} derivations
                   </SelectItem>
                 ))}
               </SelectContent>
