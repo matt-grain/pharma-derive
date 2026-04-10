@@ -1,0 +1,73 @@
+sequenceDiagram
+    participant U as User / UI
+    participant O as Orchestrator
+    participant FSM as WorkflowFSM
+    participant SP as SpecParser
+    participant DAG as DerivationDAG
+    participant C as Coder Agent
+    participant QC as QC Agent
+    participant V as Comparator
+    participant D as Debugger Agent
+    participant A as Auditor Agent
+    participant DB as Repository (SQLite)
+
+    U->>O: run(spec_path)
+    activate O
+
+    Note over O,FSM: Phase 1 — Spec Review
+    O->>FSM: start_spec_review()
+    O->>SP: parse_spec(path)
+    SP-->>O: TransformationSpec
+    O->>O: load_source_data() + generate_synthetic()
+    O->>FSM: finish_spec_review()
+
+    Note over O,DAG: Phase 2 — Build DAG
+    O->>FSM: start_deriving()
+    O->>DAG: DerivationDAG(rules, source_columns)
+    DAG-->>O: topological layers
+
+    Note over O,D: Phase 3 — Derive Variables (per layer)
+    loop For each topological layer
+        loop For each variable in layer (parallel)
+            O->>FSM: start_verifying()
+
+            par Coder + QC in parallel
+                O->>C: run(rule, deps)
+                C->>C: inspect_data() → execute_code()
+                C-->>O: DerivationCode
+            and
+                O->>QC: run(rule, deps)
+                QC->>QC: inspect_data() → execute_code()
+                QC-->>O: DerivationCode
+            end
+
+            O->>V: verify_derivation(coder_code, qc_code)
+            V-->>O: VerificationResult
+
+            alt QC Match
+                O->>DAG: apply_run_result(APPROVED)
+            else QC Mismatch
+                O->>D: run(debug mismatch)
+                D-->>O: DebugAnalysis
+                alt Fix found
+                    O->>DAG: apply_run_result(APPROVED)
+                else No fix
+                    O->>DAG: apply_run_result(QC_MISMATCH)
+                end
+            end
+
+            O->>DB: store QC result + pattern
+        end
+        O->>FSM: next_variable()
+    end
+
+    Note over O,A: Phase 4 — Audit
+    O->>FSM: finish_review_from_verify()
+    O->>FSM: start_auditing()
+    O->>A: run(dag_summary)
+    A-->>O: AuditSummary
+    O->>DB: persist_state()
+    O->>FSM: finish()
+
+    O-->>U: WorkflowResult
+    deactivate O

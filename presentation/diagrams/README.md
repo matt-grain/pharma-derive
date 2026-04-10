@@ -1,0 +1,1 @@
+npx @mermaid-js/mermaid-cli -i presentation/diagrams/orchestration_sequence.mmd -o presentation/diagrams/orchestration_sequence.svg 2>&1 && npx @mermaid-js/mermaid-cli -i presentation/diagrams/derivation_detail.mmd -o presentation/diagrams/derivation_detail.svg

@@ -1,0 +1,57 @@
+sequenceDiagram
+    participant R as derivation_runner
+    participant C as Coder Agent
+    participant QC as QC Agent
+    participant S as Sandbox (exec)
+    participant V as Comparator
+    participant D as Debugger Agent
+    participant DAG as DerivationDAG
+
+    R->>R: get_node(variable)
+    Note over R: Build CoderDeps(df, synthetic_csv, rule)
+
+    par Fan-out: Coder + QC
+        R->>C: agent.run(rule.logic)
+        activate C
+        C->>S: inspect_data(ctx)
+        S-->>C: schema + nulls + ranges
+        C->>S: execute_code(ctx, code)
+        S-->>C: aggregate summary
+        C-->>R: DerivationCode(python_code, approach)
+        deactivate C
+    and
+        R->>QC: agent.run(rule.logic)
+        activate QC
+        QC->>S: inspect_data(ctx)
+        S-->>QC: schema + nulls + ranges
+        QC->>S: execute_code(ctx, code)
+        S-->>QC: aggregate summary
+        QC-->>R: DerivationCode(python_code, approach)
+        deactivate QC
+    end
+
+    R->>V: verify_derivation(coder_code, qc_code, df)
+    activate V
+    V->>S: execute_derivation(df, coder_code)
+    V->>S: execute_derivation(df, qc_code)
+    V->>V: compare_results(primary, qc)
+    V->>V: compute_ast_similarity()
+    V-->>R: VerificationResult(verdict, comparison)
+    deactivate V
+
+    alt verdict == MATCH
+        R->>DAG: apply_run_result(APPROVED)
+        R->>R: derived_df[variable] = series
+    else verdict == MISMATCH
+        R->>D: agent.run(debug mismatch)
+        activate D
+        D-->>R: DebugAnalysis(root_cause, suggested_fix)
+        deactivate D
+        alt suggested_fix valid
+            R->>S: execute_derivation(df, fix)
+            R->>DAG: apply_run_result(APPROVED)
+            R->>R: derived_df[variable] = series
+        else no fix
+            R->>DAG: apply_run_result(QC_MISMATCH)
+        end
+    end

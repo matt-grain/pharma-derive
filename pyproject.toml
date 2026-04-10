@@ -43,6 +43,7 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH", "RUF", "S", "T2
 "tests/**/*.py" = ["S101"]  # assert is expected in tests
 "src/domain/dag.py" = ["S101"]  # assert guards cached computation invariant
 "tools/**/*.py" = ["T20"]  # CLI scripts use print() for user output
+"scripts/**/*.py" = ["T20"]  # CLI scripts use print() for user output
 
 [tool.pyright]
 pythonVersion = "3.13"

@@ -12,7 +12,7 @@ git clone https://github.com/matt-grain/pharma-derive.git
 cd pharma-derive
 uv sync
 
-# Run tests (148 tests, 89% coverage)
+# Run tests (153 tests, 89% coverage)
 uv run pytest
 
 # Start the Streamlit UI
@@ -30,11 +30,12 @@ The system reads a transformation specification and structured clinical data (SD
 
 ```
 src/
-├── domain/        # Pure Python: models, DAG, spec parser
-├── agents/        # 5 PydanticAI agents (Coder, QC, Debugger, Auditor, Spec)
-├── engine/        # Orchestrator FSM, derivation runner, LLM gateway
+├── config/        # Settings (pydantic-settings), LLM gateway, logging
+├── domain/        # Pure Python: models, DAG, FSM, exceptions, spec parser
+├── agents/        # 5 PydanticAI agents + tools/ (sandbox, tracing)
+├── engine/        # Orchestrator, derivation runner
 ├── verification/  # Double-programming QC comparison
-├── persistence/   # SQLAlchemy repos (SQLite -> PostgreSQL)
+├── persistence/   # SQLAlchemy repos with BaseRepository (SQLite -> PostgreSQL)
 ├── audit/         # Append-only audit trail
 └── ui/            # Streamlit HITL interface
 ```
@@ -76,7 +77,7 @@ uv run lint-imports          # Architectural boundary check
 
 ## Quality
 
-- 148 tests | 89% coverage
+- 153 tests | 89% coverage
 - pyright strict mode (0 errors)
 - 19 import-linter contracts (layer boundaries)
 - 10 custom pre-push architectural checks
@@ -92,3 +93,23 @@ uv run lint-imports          # Architectural boundary check
 ## Tech Stack
 
 Python 3.13+ | PydanticAI | pandas | SQLAlchemy | python-statemachine | Streamlit | loguru | ruff | pyright
+
+## Diagrams
+
+Generate Mermaid diagrams (FSM state diagram + orchestration sequence diagrams):
+
+```bash
+uv run python scripts/generate_diagrams.py
+```
+
+This produces `.mmd` source files and renders `.svg` automatically (requires Node.js for `npx @mermaid-js/mermaid-cli`). Output in `presentation/diagrams/`:
+
+| Diagram | Description |
+|---------|-------------|
+| `fsm_states.svg` | Workflow state machine (parsed from code via AST) |
+| `orchestration_sequence.svg` | Full workflow: User -> Orchestrator -> Agents -> DB |
+| `derivation_detail.svg` | Per-variable derivation: Coder+QC parallel -> Verify -> Debug |
+
+## Optional
+
+To generate the FSM Graph via Graphviz (alternative to the Mermaid diagrams above), install Graphviz (https://graphviz.org/download/) and ensure it is available in the path.
