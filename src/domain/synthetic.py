@@ -28,6 +28,35 @@ def _random_date_between(start: date, end: date, rng: np.random.Generator) -> st
     return (start + timedelta(days=random_days)).isoformat()
 
 
+def _synth_numeric(series: pd.Series[Any], rows: int, rng: np.random.Generator) -> list[object]:
+    """Generate synthetic numeric values with ~10% nulls."""
+    col_min = float(series.min())
+    col_max = float(series.max())
+    if pd.api.types.is_integer_dtype(series):
+        values: list[object] = [int(x) for x in rng.integers(int(col_min), int(col_max) + 1, size=rows)]
+    else:
+        values = [float(x) for x in rng.uniform(col_min, col_max, size=rows)]
+    null_mask = rng.random(rows) < 0.1
+    return [None if null_mask[i] else values[i] for i in range(rows)]
+
+
+def _synth_date(series: pd.Series[Any], rows: int, rng: np.random.Generator) -> list[object]:
+    """Generate synthetic date strings between min and max."""
+    non_null_str: list[str] = [s for s in series.dropna().astype(str).tolist() if _DATE_PATTERN.match(s)]
+    dates = [date.fromisoformat(d) for d in non_null_str]
+    min_date, max_date = min(dates), max(dates)
+    return [_random_date_between(min_date, max_date, rng) for _ in range(rows)]
+
+
+def _synth_categorical(series: pd.Series[Any], rows: int, rng: np.random.Generator) -> list[object]:
+    """Generate synthetic categorical values by sampling unique values."""
+    uniques: list[Any] = series.dropna().unique().tolist()
+    if not uniques:
+        return [None] * rows
+    indices = rng.integers(0, len(uniques), size=rows)
+    return [uniques[int(i)] for i in indices]
+
+
 def generate_synthetic(df: pd.DataFrame, rows: int = 15) -> pd.DataFrame:
     """Generate a synthetic reference dataset from a real DataFrame.
 
@@ -41,32 +70,11 @@ def generate_synthetic(df: pd.DataFrame, rows: int = 15) -> pd.DataFrame:
 
     for col in df.columns:
         series: pd.Series[Any] = df[col]
-        values: list[object]
-
         if pd.api.types.is_numeric_dtype(series):
-            col_min = float(series.min())
-            col_max = float(series.max())
-            if pd.api.types.is_integer_dtype(series):
-                values = [int(x) for x in rng.integers(int(col_min), int(col_max) + 1, size=rows)]
-            else:
-                values = [float(x) for x in rng.uniform(col_min, col_max, size=rows)]
-            null_mask = rng.random(rows) < 0.1
-            values = [None if null_mask[i] else values[i] for i in range(rows)]
-
+            result[col] = _synth_numeric(series, rows, rng)
         elif _is_date_column(series):
-            non_null_str: list[str] = [s for s in series.dropna().astype(str).tolist() if _DATE_PATTERN.match(s)]
-            dates = [date.fromisoformat(d) for d in non_null_str]
-            min_date, max_date = min(dates), max(dates)
-            values = [_random_date_between(min_date, max_date, rng) for _ in range(rows)]
-
+            result[col] = _synth_date(series, rows, rng)
         else:
-            uniques: list[Any] = series.dropna().unique().tolist()
-            if uniques:
-                indices = rng.integers(0, len(uniques), size=rows)
-                values = [uniques[int(i)] for i in indices]
-            else:
-                values = [None] * rows
-
-        result[col] = values
+            result[col] = _synth_categorical(series, rows, rng)
 
     return pd.DataFrame(result)

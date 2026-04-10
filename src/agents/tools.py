@@ -106,6 +106,24 @@ async def inspect_data(ctx: RunContext[CoderDeps]) -> str:
     return "\n\n".join([schema, nulls, ranges, synthetic])
 
 
+def _build_sandbox(df: pd.DataFrame) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build globals and locals namespaces for sandboxed execution."""
+    local_ns: dict[str, Any] = {"df": df.copy(), "pd": pd, "np": np}
+    globals_ns: dict[str, Any] = {"__builtins__": _SAFE_BUILTINS}
+    return globals_ns, local_ns
+
+
+def _format_exec_output(local_ns: dict[str, Any], stdout_buf: io.StringIO) -> str:
+    """Format execution output from the sandbox namespace."""
+    if "result" not in local_ns:
+        captured = stdout_buf.getvalue()
+        return captured if captured else "(code ran but produced no result variable or output)"
+    result = local_ns["result"]
+    if not isinstance(result, pd.Series):
+        return f"result type: {type(result).__name__}, value: {result!r}"
+    return _summarise_result(cast("pd.Series[Any]", result))
+
+
 def _check_blocked_tokens(code: str) -> str | None:
     """Return an error string if any blocked token is found in the code."""
     for token in _BLOCKED_TOKENS:
@@ -150,12 +168,7 @@ async def execute_code(ctx: RunContext[CoderDeps], code: str) -> str:
     if block_msg is not None:
         return block_msg
 
-    local_ns: dict[str, Any] = {
-        "df": ctx.deps.df.copy(),
-        "pd": pd,
-        "np": np,
-    }
-    globals_ns: dict[str, Any] = {"__builtins__": _SAFE_BUILTINS}
+    globals_ns, local_ns = _build_sandbox(ctx.deps.df)
 
     stdout_buf = io.StringIO()
     try:
@@ -173,12 +186,4 @@ async def execute_code(ctx: RunContext[CoderDeps], code: str) -> str:
     ) as exc:
         return f"ERROR: {type(exc).__name__}: {exc}"
 
-    if "result" not in local_ns:
-        captured = stdout_buf.getvalue()
-        return captured if captured else "(code ran but produced no result variable or output)"
-
-    result = local_ns["result"]
-    if not isinstance(result, pd.Series):
-        return f"result type: {type(result).__name__}, value: {result!r}"
-
-    return _summarise_result(cast("pd.Series[Any]", result))
+    return _format_exec_output(local_ns, stdout_buf)

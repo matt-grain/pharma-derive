@@ -78,13 +78,17 @@ def execute_derivation(
         )
 
     result_typed: pd.Series[Any] = result  # type: ignore[assignment]  # isinstance checked above; pandas stubs don't narrow
-    vc = _build_value_counts(result_typed)
+    return _build_success_result(result_typed, elapsed)
 
+
+def _build_success_result(result: pd.Series[Any], elapsed: float) -> ExecutionResult:
+    """Build ExecutionResult from a successful eval result."""
+    vc = _build_value_counts(result)
     return ExecutionResult(
         success=True,
-        series_json=result_typed.to_json(),
-        null_count=int(result_typed.isna().sum()),
-        dtype=str(result_typed.dtype),
+        series_json=result.to_json(),
+        null_count=int(result.isna().sum()),
+        dtype=str(result.dtype),
         value_counts=vc,
         execution_time_ms=elapsed,
     )

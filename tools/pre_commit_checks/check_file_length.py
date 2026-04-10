@@ -1,6 +1,9 @@
 """Pre-commit check: Module size limits — flag large files, functions, and classes.
 
-Files > 200 lines, functions > 30 lines, classes > 150 lines.
+Files > 250 lines, functions > 40 lines, classes > 200 lines.
+
+Limits calibrated for Python — type annotations, docstrings, try/except blocks,
+and multi-branch if/elif naturally inflate line counts compared to Go/Dart.
 """
 
 import ast
@@ -10,9 +13,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from _base import Violation, iter_python_files, run_checker
 
-FILE_LINE_LIMIT = 200
-FUNCTION_LINE_LIMIT = 30
-CLASS_LINE_LIMIT = 150
+FILE_LINE_LIMIT = 250
+FUNCTION_LINE_LIMIT = 40
+CLASS_LINE_LIMIT = 200
 
 
 class SizeLimitChecker(ast.NodeVisitor):

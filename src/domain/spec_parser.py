@@ -19,6 +19,16 @@ from src.domain.models import (
 )
 
 
+def _parse_validation(raw: dict[str, Any]) -> ValidationConfig:
+    """Parse the optional validation section from raw spec dict."""
+    if "validation" not in raw:
+        return ValidationConfig()
+    val_raw: dict[str, Any] = raw["validation"]
+    gt = GroundTruthConfig(**val_raw["ground_truth"]) if "ground_truth" in val_raw else None
+    tol = ToleranceConfig(**val_raw["tolerance"]) if "tolerance" in val_raw else ToleranceConfig()
+    return ValidationConfig(ground_truth=gt, tolerance=tol)
+
+
 def parse_spec(spec_path: str | Path) -> TransformationSpec:
     """Parse a YAML spec file into a TransformationSpec model."""
     path = Path(spec_path)
@@ -45,12 +55,7 @@ def parse_spec(spec_path: str | Path) -> TransformationSpec:
 
     synthetic = SyntheticConfig(**raw["synthetic"]) if "synthetic" in raw else SyntheticConfig()
 
-    validation = ValidationConfig()
-    if "validation" in raw:
-        val_raw: dict[str, Any] = raw["validation"]
-        gt = GroundTruthConfig(**val_raw["ground_truth"]) if "ground_truth" in val_raw else None
-        tol = ToleranceConfig(**val_raw["tolerance"]) if "tolerance" in val_raw else ToleranceConfig()
-        validation = ValidationConfig(ground_truth=gt, tolerance=tol)
+    validation = _parse_validation(raw)
 
     derivations = [DerivationRule(**d) for d in raw["derivations"]]
 

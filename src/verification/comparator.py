@@ -67,6 +67,27 @@ def verify_derivation(
             recommendation=VerificationRecommendation.NEEDS_DEBUG,
         )
 
+    return _compare_outputs(
+        variable,
+        primary_result,
+        qc_result,
+        coder_code,
+        qc_code,
+        tolerance,
+        independence_threshold,
+    )
+
+
+def _compare_outputs(
+    variable: str,
+    primary_result: ExecutionResult,
+    qc_result: ExecutionResult,
+    coder_code: str,
+    qc_code: str,
+    tolerance: float,
+    independence_threshold: float,
+) -> VerificationResult:
+    """Deserialize execution results and compare outputs."""
     # pd.read_json with typ="series" returns Series but pandas-stubs types it as DataFrame | Series
     # StringIO wrapper avoids the literal-json deprecation warning in pandas >= 2.2
     primary_series: pd.Series[Any] = pd.read_json(  # type: ignore[assignment]
@@ -80,7 +101,6 @@ def verify_derivation(
 
     comparison = compare_results(variable, primary_series, qc_series, tolerance)  # type: ignore[arg-type]  # pd.read_json returns DataFrame|Series; we assign to Series[Any] above
     ast_sim = compute_ast_similarity(coder_code, qc_code)
-
     verdict, recommendation = _determine_verdict(comparison, ast_sim, independence_threshold)
 
     return VerificationResult(
