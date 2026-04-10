@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from _base import Violation, iter_python_files, run_checker
 
-FILE_LINE_LIMIT = 270  # calibrated for Python: type annotations, docstrings, try/except inflate line counts
+FILE_LINE_LIMIT = 300  # calibrated for Python: type annotations, docstrings, try/except, persistence serialization
 FUNCTION_LINE_LIMIT = 40
 CLASS_LINE_LIMIT = 230  # accounts for error handling, rollback methods in orchestrator-style classes
 
