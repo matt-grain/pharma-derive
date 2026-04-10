@@ -1,0 +1,65 @@
+study: cdiscpilot01
+description: "ADSL derivations for CDISC Pilot Study (Alzheimer's anti-dementia trial)"
+version: "1.0.0"
+author: "CDDE"
+
+source:
+  format: xpt
+  path: data/sdtm/cdiscpilot01
+  domains: [dm, ex, ds, sv]
+  primary_key: USUBJID
+
+synthetic:
+  rows: 15
+
+validation:
+  ground_truth:
+    path: data/adam/cdiscpilot01/adsl.xpt
+    format: xpt
+    key: USUBJID
+  tolerance:
+    numeric: 0.01
+
+derivations:
+  - variable: AGEGR1
+    source_columns: [AGE]
+    logic: "Age group: '<65' if AGE < 65, '65-80' if 65 <= AGE <= 80, '>80' if AGE > 80."
+    output_type: str
+    allowed_values: ["<65", "65-80", ">80"]
+
+  - variable: TRTDUR
+    source_columns: [RFXSTDTC, RFXENDTC]
+    logic: "Treatment duration in days: (RFXENDTC - RFXSTDTC) + 1. Dates are ISO 8601 strings. Null if either date is missing."
+    output_type: float
+    nullable: true
+
+  - variable: SAFFL
+    source_columns: [ARM, ACTARMCD, RFXSTDTC]
+    logic: "Safety population flag: 'Y' if the subject was randomized (ARM is not empty) AND received at least one dose (RFXSTDTC is not missing). Otherwise 'N'."
+    output_type: str
+    allowed_values: ["Y", "N"]
+
+  - variable: ITTFL
+    source_columns: [ARM, ARMCD]
+    logic: "Intent-to-treat flag: 'Y' if the subject was randomized (ARMCD is not empty). Otherwise 'N'."
+    output_type: str
+    allowed_values: ["Y", "N"]
+
+  - variable: EFFFL
+    source_columns: [ITTFL, SAFFL]
+    logic: "Efficacy population flag: 'Y' if both ITTFL='Y' and SAFFL='Y'. Otherwise 'N'."
+    output_type: str
+    allowed_values: ["Y", "N"]
+
+  - variable: DISCONFL
+    source_columns: [DSDECOD, DSCAT]
+    logic: "Discontinuation flag: 'Y' if any DS record has DSCAT='DISPOSITION EVENT' and DSDECOD is NOT 'COMPLETED'. Otherwise '' (empty string). Note: requires per-subject aggregation across DS domain rows."
+    output_type: str
+    allowed_values: ["Y", ""]
+    domain: ds
+
+  - variable: DURDIS
+    source_columns: [RFSTDTC]
+    logic: "Duration of disease in months: not directly derivable from SDTM sources without disease onset date (DISONSDT from MH domain, not included in source). Set to null for all subjects. This tests the system's handling of underspecified derivations where the agent should flag the ambiguity."
+    output_type: float
+    nullable: true

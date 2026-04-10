@@ -116,3 +116,27 @@ repos:
         pass_filenames: false
         types: [python]
         stages: [pre-push]
+
+      - id: check-file-length
+        name: check file/function/class length limits
+        entry: uv run python tools/pre_commit_checks/check_file_length.py
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]
+
+      - id: check-llm-gateway
+        name: check LLM gateway enforcement (no direct model construction)
+        entry: uv run python tools/pre_commit_checks/check_llm_gateway.py
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]
+
+      - id: check-enum-discipline
+        name: check enum discipline (no raw string comparisons)
+        entry: uv run python tools/pre_commit_checks/check_enum_discipline.py
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]

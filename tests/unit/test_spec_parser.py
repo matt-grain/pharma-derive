@@ -97,3 +97,68 @@ def test_generate_synthetic_detects_date_columns(sample_df: pd.DataFrame) -> Non
     date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
     for val in synthetic["treatment_start"].dropna():
         assert date_pattern.match(str(val)), f"Not a valid date: {val}"
+
+
+def test_parse_spec_xpt_format_accepted(tmp_path: Path) -> None:
+    """Parse a spec with XPT format and verify it's accepted."""
+    # Arrange
+    spec_yaml = tmp_path / "xpt_spec.yaml"
+    spec_yaml.write_text(
+        "study: test\n"
+        'description: "test"\n'
+        "source:\n"
+        "  format: xpt\n"
+        "  path: data/sdtm/cdiscpilot01\n"
+        "  domains: [dm]\n"
+        "  primary_key: USUBJID\n"
+        "derivations:\n"
+        "  - variable: AGEGR1\n"
+        "    source_columns: [AGE]\n"
+        '    logic: "test"\n'
+        "    output_type: str\n"
+    )
+
+    # Act
+    spec = parse_spec(spec_yaml)
+
+    # Assert
+    assert spec.source.format == "xpt"
+
+
+def test_load_source_data_xpt_reads_dm() -> None:
+    """Load DM domain from real CDISC XPT files."""
+    # Arrange
+    spec = parse_spec(Path("specs/adsl_cdiscpilot01.yaml"))
+
+    # Act
+    df = load_source_data(spec)
+
+    # Assert
+    assert len(df) > 0
+    assert "USUBJID" in df.columns
+    assert "AGE" in df.columns
+
+
+def test_load_source_data_unsupported_format_parquet_raises(tmp_path: Path) -> None:
+    """Unsupported format raises ValueError when parsed from YAML spec."""
+    # Arrange
+    spec_yaml = tmp_path / "bad_spec.yaml"
+    spec_yaml.write_text(
+        "study: test\n"
+        'description: "test"\n'
+        "source:\n"
+        "  format: parquet\n"
+        "  path: .\n"
+        "  domains: [data]\n"
+        "  primary_key: id\n"
+        "derivations:\n"
+        "  - variable: X\n"
+        "    source_columns: [a]\n"
+        '    logic: "test"\n'
+        "    output_type: str\n"
+    )
+    spec = parse_spec(spec_yaml)
+
+    # Act & Assert
+    with pytest.raises(ValueError, match="Unsupported source format"):
+        load_source_data(spec)

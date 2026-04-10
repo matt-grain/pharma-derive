@@ -40,10 +40,13 @@ This document tracks all quality gates, linters, and architectural checks in the
 | `check-domain-no-ui-exceptions` | Streamlit/FastAPI imports or raises in domain/agents/verification/audit |
 | `check-engine-no-ui-exceptions` | Streamlit/FastAPI imports or raises in engine/ |
 | `check-repo-direct-instantiation` | Direct `Repository()` instantiation outside persistence/ and tests/ |
+| `check-file-length` | Files >200 lines, functions >30 lines, classes >150 lines |
+| `check-llm-gateway` | Direct OpenAIChatModel/OpenAIProvider construction outside llm_gateway.py |
+| `check-enum-discipline` | Raw string comparisons against known enum values |
 
 ## Import-Linter Contracts
 
-### Active (Phase 1-3)
+### Active (Phases 1-4)
 
 | Contract | Rule | Status |
 |----------|------|--------|
@@ -54,29 +57,29 @@ This document tracks all quality gates, linters, and architectural checks in the
 | `agents-no-verification` | agents/ cannot import from verification/ | **ACTIVE** |
 | `verification-no-agents` | verification/ cannot import from agents/ (QC independence) | **ACTIVE** |
 | `verification-no-engine` | verification/ cannot import from engine/ | **ACTIVE** |
+| `domain-no-persistence` | domain/ cannot import from persistence/ | **ACTIVE** |
+| `domain-no-audit` | domain/ cannot import from audit/ | **ACTIVE** |
+| `agents-no-persistence` | agents/ cannot import from persistence/ | **ACTIVE** |
+| `agents-no-audit` | agents/ cannot import from audit/ | **ACTIVE** |
+| `engine-no-persistence` | engine/ cannot import persistence/ directly (TYPE_CHECKING only) | **ACTIVE** |
+| `verification-no-persistence` | verification/ cannot import from persistence/ | **ACTIVE** |
+| `persistence-no-agents` | persistence/ cannot import from agents/ | **ACTIVE** |
+| `persistence-no-engine` | persistence/ cannot import from engine/ | **ACTIVE** |
+| `audit-no-engine` | audit/ cannot import from engine/ | **ACTIVE** |
+| `audit-no-persistence` | audit/ cannot import from persistence/ | **ACTIVE** |
 
-### Commented Out (Phase 4 — uncomment when modules exist)
+**Total: 17 contracts, 0 broken.**
+
+### Planned (Phase 6)
 
 | Contract | Rule | Status |
 |----------|------|--------|
-| `domain-no-persistence` | domain/ cannot import from persistence/ | **COMMENTED** — waiting for `src/persistence/` |
-| `domain-no-audit` | domain/ cannot import from audit/ | **COMMENTED** — waiting for `src/audit/` |
-| `agents-no-persistence` | agents/ cannot import from persistence/ | **COMMENTED** |
-| `agents-no-audit` | agents/ cannot import from audit/ | **COMMENTED** |
-| `engine-no-persistence` | engine/ cannot import persistence/ directly (use DI) | **COMMENTED** |
-| `verification-no-persistence` | verification/ cannot import from persistence/ | **COMMENTED** |
-| `persistence-no-agents` | persistence/ cannot import from agents/ | **COMMENTED** |
-| `persistence-no-engine` | persistence/ cannot import from engine/ | **COMMENTED** |
-| `audit-no-engine` | audit/ cannot import from engine/ | **COMMENTED** |
-| `audit-no-persistence` | audit/ cannot import from persistence/ | **COMMENTED** |
-
-**Action required:** When implementing Phase 4, uncomment contracts in `.importlinter` and verify they pass.
+| `audit-no-agents` | audit/ cannot import from agents/ | **PLANNED** |
+| `ui-no-persistence` | ui/ cannot import from persistence/ directly | **PLANNED** |
 
 ## Custom Architectural Checks
 
 Located in `tools/pre_commit_checks/`. Each uses AST parsing (not regex) for accurate detection.
-
-### Active
 
 | Check | File | What It Enforces |
 |-------|------|-----------------|
@@ -87,12 +90,9 @@ Located in `tools/pre_commit_checks/`. Each uses AST parsing (not regex) for acc
 | No UI exceptions (lower layers) | `check_domain_no_ui_exceptions.py` | domain/, agents/, verification/, audit/ must not import or raise streamlit/fastapi/starlette exceptions |
 | No UI exceptions (engine) | `check_engine_no_ui_exceptions.py` | engine/ must raise domain exceptions, never UI-tier (HTTPException, Streamlit errors) |
 | Repo DI enforcement | `check_repo_direct_instantiation.py` | No `Repository()` instantiation or `from persistence import *Repository` in domain/agents/engine/verification/audit — repos injected via constructor |
-
-### Planned (adapt when needed)
-
-| Check | Priority | When | What It Would Enforce |
-|-------|----------|------|-----------------------|
-| Exception coverage | Low | Phase 4 | All domain exceptions caught somewhere in engine/ (informational) |
+| File/function/class length | `check_file_length.py` | Files >200 lines, functions >30 lines, classes >150 lines in src/ |
+| LLM gateway enforcement | `check_llm_gateway.py` | No direct `OpenAIChatModel`/`OpenAIProvider` construction outside `llm_gateway.py` |
+| Enum discipline | `check_enum_discipline.py` | No raw string comparisons against known enum values (match, completed, coder, etc.) — use StrEnum members |
 
 ## Ruff Configuration
 
@@ -102,7 +102,12 @@ target-version = "py313"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH", "RUF"]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH", "RUF", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+"src/engine/orchestrator.py" = ["S101"]
+"src/engine/derivation_runner.py" = ["S101"]
 ```
 
 Excludes: `scripts/`, `prototypes/`
@@ -123,14 +128,26 @@ reportMissingTypeStubs = false
 uv sync --dev → ruff check → ruff format --check → pyright → pytest --cov
 ```
 
-## Quality Metrics (Current)
+## Quality Metrics (Current — Phase 5)
 
 | Metric | Value | Threshold |
 |--------|-------|-----------|
-| Test coverage | 95% | >= 80% |
-| Tests passing | 87/87 | 100% |
+| Test coverage | 85% | >= 80% |
+| Tests passing | 125/125 | 100% |
 | Pyright errors | 0 | 0 |
 | Ruff violations | 0 | 0 |
-| Import-linter contracts | 7/7 kept | 0 broken |
+| Import-linter contracts | 17/17 kept | 0 broken |
 | Radon complexity | 1 function at C (13.0) | Flag C+ |
 | Vulture dead code | 0 | 0 |
+| Custom arch checks | 10 checks, 2 clean + 1 with known deferred violations | 0 new |
+
+## Quality History
+
+| Phase | Tests | Coverage | Contracts | Notes |
+|-------|-------|----------|-----------|-------|
+| Phase 1 (domain) | 25 | — | 7/7 | Domain models, DAG, spec parser |
+| Phase 2 (agents) | 52 | — | 7/7 | 5 PydanticAI agents, shared tools, LLM gateway |
+| Phase 3 (engine) | 87 | 95% | 7/7 | WorkflowFSM, derivation runner, executor, comparator |
+| Phase 4 (persistence) | 118 | 85% | 17/17 | SQLAlchemy repos, audit trail, integration tests |
+| Phase 4→5 (review fix) | 118 | 85% | 17/17 | 18 review findings fixed, 3 new StrEnums, gateway enforced |
+| Phase 5 (CDISC data) | 125 | 85% | 17/17 | XPT loader, ADSL spec (7 derivations), 3 new pre-commit checks |
