@@ -2,31 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from src.agents.deps import AuditorDeps as AuditorDeps  # re-export for backward compat
+from src.agents.factory import load_agent
 
-from pydantic_ai import Agent
-
-from src.domain.models import AuditSummary, SpecMetadata
-
-
-@dataclass
-class AuditorDeps:
-    """Dependencies for the auditor agent."""
-
-    dag_summary: str
-    workflow_id: str
-    spec_metadata: SpecMetadata
-
-
-auditor_agent: Agent[AuditorDeps, AuditSummary] = Agent(
-    "test",  # overridden at call time via model= parameter
-    name="auditor",
-    output_type=AuditSummary,
-    deps_type=AuditorDeps,
-    retries=3,
-    system_prompt=(
-        "You are a regulatory compliance auditor reviewing a clinical data "
-        "derivation workflow. Summarize the derivation process, flag concerns, "
-        "and provide recommendations for the audit trail."
-    ),
-)
+auditor_agent = load_agent("config/agents/auditor.yaml")

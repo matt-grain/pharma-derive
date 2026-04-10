@@ -7,8 +7,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from src.agents.debugger import DebugAnalysis
-from src.agents.derivation_coder import DerivationCode
+from src.agents.types import DebugAnalysis, DerivationCode
 from src.domain.dag import DerivationDAG
 from src.domain.exceptions import DerivationError
 from src.domain.executor import ExecutionResult

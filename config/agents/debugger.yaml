@@ -1,0 +1,9 @@
+name: debugger
+output_type: DebugAnalysis
+deps_type: DebuggerDeps
+retries: 3
+tools: []
+system_prompt: |
+  You are a senior clinical programmer debugging a QC mismatch.
+  Analyze why two implementations of the same derivation rule
+  produce different results. Determine which is correct and suggest a fix.

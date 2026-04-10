@@ -1,4 +1,4 @@
-"""Shared dependency container for Coder and QC agents."""
+"""Shared dependency containers for all agents."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import pandas as pd  # noqa: TC002 — used at runtime in dataclass field
 
 if TYPE_CHECKING:
-    from src.domain.models import DerivationRule
+    from src.domain.models import DerivationRule, SpecMetadata
 
 
 @dataclass
@@ -19,3 +19,31 @@ class CoderDeps:
     synthetic_csv: str
     rule: DerivationRule
     available_columns: list[str]
+
+
+@dataclass
+class AuditorDeps:
+    """Dependencies for the auditor agent."""
+
+    dag_summary: str
+    workflow_id: str
+    spec_metadata: SpecMetadata
+
+
+@dataclass
+class DebuggerDeps:
+    """Dependencies for the debugger agent."""
+
+    rule: DerivationRule
+    coder_code: str
+    qc_code: str
+    divergent_summary: str
+    available_columns: list[str]
+
+
+@dataclass
+class SpecInterpreterDeps:
+    """Dependencies for the spec interpreter agent."""
+
+    spec_yaml: str
+    source_columns: list[str]

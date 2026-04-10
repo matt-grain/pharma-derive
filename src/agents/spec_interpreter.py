@@ -2,42 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from src.agents.deps import SpecInterpreterDeps as SpecInterpreterDeps  # re-export
+from src.agents.factory import load_agent
+from src.agents.types import SpecInterpretation as SpecInterpretation  # re-export
 
-from pydantic import BaseModel
-from pydantic_ai import Agent
-
-from src.domain.models import DerivationRule  # noqa: TC001 — needed at runtime by Pydantic schema builder
-
-
-class SpecInterpretation(BaseModel, frozen=True):
-    """Structured output of the spec interpreter agent."""
-
-    rules: list[DerivationRule]
-    ambiguities: list[str]
-    summary: str
-
-
-@dataclass
-class SpecInterpreterDeps:
-    """Dependencies for the spec interpreter agent."""
-
-    spec_yaml: str
-    source_columns: list[str]
-
-
-spec_interpreter_agent: Agent[SpecInterpreterDeps, SpecInterpretation] = Agent(
-    "test",  # overridden at call time via model= parameter
-    name="spec_interpreter",
-    output_type=SpecInterpretation,
-    deps_type=SpecInterpreterDeps,
-    retries=3,
-    system_prompt=(
-        "You are a clinical data specification analyst. "
-        "Given a YAML transformation specification and a list of available source columns, "
-        "extract each derivation rule with its variable name, source columns, derivation logic, "
-        "and expected output type. "
-        "Flag any ambiguities (missing source columns, unclear logic, conflicting rules). "
-        "Return structured rules that can be directly executed by a statistical programmer."
-    ),
-)
+spec_interpreter_agent = load_agent("config/agents/spec_interpreter.yaml")

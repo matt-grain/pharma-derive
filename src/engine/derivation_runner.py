@@ -13,10 +13,14 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from src.agents.debugger import DebugAnalysis, DebuggerDeps, debugger_agent
-from src.agents.deps import CoderDeps
-from src.agents.derivation_coder import DerivationCode, coder_agent
+from src.agents.debugger import debugger_agent
+from src.agents.deps import CoderDeps, DebuggerDeps
+from src.agents.derivation_coder import coder_agent
 from src.agents.qc_programmer import qc_agent
+from src.agents.types import (  # noqa: TC001 — used at runtime in @dataclass fields and function signatures
+    DebugAnalysis,
+    DerivationCode,
+)
 from src.config.llm_gateway import create_llm
 from src.domain.exceptions import DerivationError
 from src.domain.executor import ExecutionResult, execute_derivation

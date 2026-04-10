@@ -20,6 +20,18 @@ function CodeBlock({ title, code }: { title: string; code: string | null }) {
   )
 }
 
+function resolveLabel(node: DAGNode): string {
+  if (node.qc_verdict === 'match') {
+    return 'QC: match — coder version approved'
+  }
+  if (node.qc_verdict !== 'mismatch') return ''
+  if (node.status !== 'approved') return 'QC: mismatch — unresolved'
+  // Mismatch resolved by debugger — which version was approved?
+  if (node.approved_code === node.qc_code) return 'QC: mismatch — resolved by debugger, QC version approved'
+  if (node.approved_code === node.coder_code) return 'QC: mismatch — resolved by debugger, coder version approved'
+  return 'QC: mismatch — resolved by debugger, fix applied'
+}
+
 export function CodePanel({ node }: CodePanelProps) {
   const hasCode = node.coder_code ?? node.qc_code ?? node.approved_code
 
@@ -28,9 +40,7 @@ export function CodePanel({ node }: CodePanelProps) {
       <div className="mb-3 flex items-center gap-3">
         <h3 className="text-sm font-semibold text-slate-800">{node.variable}</h3>
         <StatusBadge status={node.status} />
-        {node.qc_verdict && (
-          <span className="text-xs text-slate-500">QC: {node.qc_verdict}</span>
-        )}
+        <span className="text-xs text-slate-500">{resolveLabel(node)}</span>
       </div>
 
       {!hasCode && (

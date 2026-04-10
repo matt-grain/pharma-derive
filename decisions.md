@@ -85,3 +85,11 @@
 **Decision:** No separate service layer. The orchestrator IS the application service — it coordinates domain operations (DAG, agents, verification) and uses repositories for persistence via constructor DI. Adding `PatternService`, `FeedbackService` etc. would create pure pass-through classes with no business logic.
 **Alternatives considered:** (1) Dedicated service classes per domain concept (PatternService, QCService) — rejected because the business rules ("store pattern after QC pass", "query patterns before derivation") are workflow decisions that live in the orchestrator, not in pattern-management services. A service layer here would be an anemic pass-through (Fowler, "Anemic Domain Model", 2003). (2) CQRS with separate read/write services — rejected as over-engineering for a single-process application.
 **Consequences:** The orchestrator combines Application Service (Fowler) + Process Manager (Hohpe & Woolf) roles. Repositories are injected via constructor (DI), never imported directly. Unit tests pass `None` for repos, integration tests use in-memory SQLite. Full rationale with references in `docs/ORCHESTRATION_DESIGN.md`.
+
+## 2026-04-10 — YAML Agent Config (F06)
+
+**Status:** accepted
+**Context:** Agent prompts, retries, and tool bindings were hardcoded in Python. Changing a prompt required a code change and redeploy. For a platform serving multiple studies, clinical teams need to customize agent behavior per therapeutic area without touching code.
+**Decision:** Externalize agent configuration to YAML files in `config/agents/`. A factory (`src/agents/factory.py`) loads them using type/tool registries (`src/agents/registry.py`). Python modules keep output types, deps dataclasses, and tool functions — only configuration moves to YAML.
+**Alternatives considered:** (1) Pydantic Settings with env vars per agent — rejected because prompts are multi-line text, awkward in env vars. (2) JSON config — rejected because YAML is more readable for multi-line prompts (block scalar `|`). (3) Database-stored prompts — rejected as over-engineering for the current scope.
+**Consequences:** Adding a new agent = create a YAML file + add types to registry. Per-study prompt variants = copy YAML, modify prompt, pass different config path. Trade-off: runtime error if YAML references unregistered type (caught by startup tests).

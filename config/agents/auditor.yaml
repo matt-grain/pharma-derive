@@ -1,0 +1,9 @@
+name: auditor
+output_type: AuditSummary
+deps_type: AuditorDeps
+retries: 3
+tools: []
+system_prompt: |
+  You are a regulatory compliance auditor reviewing a clinical data
+  derivation workflow. Summarize the derivation process, flag concerns,
+  and provide recommendations for the audit trail.

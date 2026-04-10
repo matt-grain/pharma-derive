@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,7 +11,8 @@ from uuid import uuid4
 
 from loguru import logger
 
-from src.agents.auditor import AuditorDeps, auditor_agent
+from src.agents.auditor import auditor_agent
+from src.agents.deps import AuditorDeps
 from src.audit.trail import AuditTrail
 from src.config.llm_gateway import create_llm
 from src.config.settings import get_settings
@@ -22,76 +22,20 @@ from src.domain.models import (
     AgentName,
     AuditAction,
     DerivationStatus,
-    WorkflowStep,
 )
 from src.domain.source_loader import get_source_columns, load_source_data
 from src.domain.spec_parser import parse_spec
 from src.domain.synthetic import generate_synthetic
 from src.domain.workflow_fsm import WorkflowFSM
-from src.domain.workflow_models import WorkflowResult, WorkflowState, WorkflowStatus
+from src.domain.workflow_models import WorkflowResult, WorkflowState
 from src.engine.derivation_runner import run_variable
+from src.engine.orchestrator_helpers import build_derivation_details, build_workflow_result, serialize_workflow_state
 
 if TYPE_CHECKING:
     from src.persistence import (
         PatternRepository,
         QCHistoryRepository,
         WorkflowStateRepository,
-    )
-
-
-def _serialize_workflow_state(state: WorkflowState, fsm_state: str) -> str:
-    """Serialize workflow state including DAG nodes for DB persistence."""
-    dag = state.dag
-    dag_nodes: dict[str, dict[str, object]] = {}
-    if dag:
-        for var in dag.execution_order:
-            node = dag.get_node(var)
-            dag_nodes[var] = {
-                "status": node.status.value,
-                "layer": node.layer,
-                "coder_code": node.coder_code,
-                "qc_code": node.qc_code,
-                "qc_verdict": node.qc_verdict.value if node.qc_verdict else None,
-                "approved_code": node.approved_code,
-                "dependencies": dag.get_dependencies(var),
-            }
-    return json.dumps(
-        {
-            "workflow_id": state.workflow_id,
-            "status": fsm_state,
-            "study": state.spec.metadata.study if state.spec else None,
-            "derived_variables": list(dag.nodes if dag else {}),
-            "errors": state.errors,
-            "dag_nodes": dag_nodes,
-        }
-    )
-
-
-def _build_workflow_result(
-    state: WorkflowState,
-    fsm: WorkflowFSM,
-    audit_trail: AuditTrail,
-    elapsed: float,
-) -> WorkflowResult:
-    """Build the immutable WorkflowResult from final state."""
-    dag = state.dag
-    qc = (
-        {v: (n.qc_verdict.value if n.qc_verdict else DerivationStatus.PENDING.value) for v, n in dag.nodes.items()}
-        if dag
-        else {}
-    )
-    derived = [v for v, n in dag.nodes.items() if n.status == DerivationStatus.APPROVED] if dag else []
-    is_done = fsm.current_state_value == WorkflowStep.COMPLETED.value
-    return WorkflowResult(
-        workflow_id=state.workflow_id,
-        study=state.spec.metadata.study if state.spec else "unknown",
-        status=WorkflowStatus.COMPLETED if is_done else WorkflowStatus.FAILED,
-        derived_variables=derived,
-        qc_summary=qc,
-        audit_records=audit_trail.records + fsm.audit_records,
-        audit_summary=state.audit_summary,
-        errors=state.errors,
-        duration_seconds=round(elapsed, 3),
     )
 
 
@@ -178,7 +122,7 @@ class DerivationOrchestrator:
         if self._state_repo is None:
             return
         fsm_state = str(self._fsm.current_state_value or "unknown")
-        state_json = _serialize_workflow_state(self._state, fsm_state)
+        state_json = serialize_workflow_state(self._state, fsm_state)
         await self._state_repo.save(
             workflow_id=self._state.workflow_id,
             state_json=state_json,
@@ -243,10 +187,7 @@ class DerivationOrchestrator:
             variable=variable,
             action=AuditAction.DERIVATION_COMPLETE,
             agent=AgentName.ORCHESTRATOR,
-            details={
-                "status": node.status.value,
-                "qc_verdict": node.qc_verdict.value if node.qc_verdict else None,
-            },
+            details=build_derivation_details(node),
         )
 
         # Persist QC result to long-term memory
@@ -295,4 +236,4 @@ class DerivationOrchestrator:
         )
 
     def _build_result(self, elapsed: float) -> WorkflowResult:
-        return _build_workflow_result(self._state, self._fsm, self._audit_trail, elapsed)
+        return build_workflow_result(self._state, self._fsm, self._audit_trail, elapsed)

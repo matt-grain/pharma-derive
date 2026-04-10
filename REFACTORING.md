@@ -35,9 +35,10 @@ These are larger architectural changes identified during review, tracked but def
 
 | # | Category | Finding | Notes |
 |---|----------|---------|-------|
-| F01 | **UI/API Split** | Streamlit UI and orchestrator are coupled. Production needs FastAPI backend + thin UI client for independent scaling/deployment. | Requires new API layer |
+| F01 | **UI/API Split** | ✅ Done (Phase 11). FastAPI + FastMCP + React SPA + Docker Compose. | Service-separated architecture |
 | F02 | **YAML-Driven Pipeline** | Orchestrator steps are hardcoded in `run()`. Steps could be configurable via YAML + Step protocol for extensibility. | Good for platform thinking story |
 | F03 | **YAML-Driven FSM** | FSM states/transitions could be generated from YAML config, shared with pipeline config. | Coupled with F02 |
-| F04 | **Mermaid Diagrams** | Generate sequence diagram for orchestration flow. Good for presentation. | Presentation enhancement |
+| F04 | **Mermaid Diagrams** | ✅ Done. `scripts/generate_diagrams.py` — FSM state diagram + 2 sequence diagrams. | Presentation enhancement |
 | F05 | **Exec Sandbox** | Token-based blocklist in `execute_code` is naive (`"import"` blocks `"important"`). AST-based check or subprocess sandbox would be more reliable. | Security hardening |
-| F06 | **YAML Agent Definitions** | Agent prompts, retries, model, and tools are hardcoded in Python. A YAML config per agent + factory would make agents study-configurable (different prompts per therapeutic area) without touching code. Maps to `OUTPUT_TYPE_MAP` registry for type resolution. | §11.A Platform Thinking — same engine, different YAML = different study |
+| F06 | **YAML Agent Definitions** | ✅ Done (Phase 12). Agent configs in `config/agents/*.yaml`, factory + registries in `src/agents/`. | §11.A Platform Thinking |
+| F07 | **ADaM Data Output** | The tool's core purpose is producing ADaM datasets, but `derived_df` is not persisted or exposed via API. Need: (1) persist derived DataFrame as Parquet/CSV after workflow completion, (2) API endpoints for data preview (schema, stats, download), (3) frontend Data tab showing source SDTM columns and derived ADaM. Privacy: show aggregates only (like `inspect_data`), not raw patient rows. | Core deliverable — without this, the tool doesn't produce its primary output |

@@ -6,11 +6,13 @@ No LLM calls are made.
 
 from __future__ import annotations
 
-from src.agents.auditor import AuditorDeps, auditor_agent
-from src.agents.debugger import DebugAnalysis, debugger_agent
-from src.agents.derivation_coder import DerivationCode, coder_agent
+from src.agents.auditor import auditor_agent
+from src.agents.debugger import debugger_agent
+from src.agents.deps import AuditorDeps
+from src.agents.derivation_coder import coder_agent
 from src.agents.qc_programmer import qc_agent
-from src.agents.spec_interpreter import SpecInterpretation, spec_interpreter_agent
+from src.agents.spec_interpreter import spec_interpreter_agent
+from src.agents.types import DebugAnalysis, DerivationCode, SpecInterpretation
 from src.domain.models import AuditSummary, SpecMetadata
 from tests.unit.conftest import get_system_prompts, get_tool_names
 
