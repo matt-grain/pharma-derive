@@ -10,8 +10,8 @@ from pathlib import Path
 import streamlit as st
 
 from src.config.settings import get_settings
-from src.domain.models import QCVerdict, WorkflowStatus
-from src.domain.workflow_models import WorkflowResult
+from src.domain.models import QCVerdict
+from src.domain.workflow_models import WorkflowResult, WorkflowStatus
 from src.ui.theme import inject_theme, result_row, score_card, status_badge
 
 

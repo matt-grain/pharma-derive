@@ -49,6 +49,29 @@ def _apply_series_to_df(variable: str, exec_result: ExecutionResult, derived_df:
     derived_df[variable] = series
 
 
+def _build_run_result(
+    variable: str,
+    status: DerivationStatus,
+    coder: DerivationCode,
+    qc_code: DerivationCode,
+    verdict: QCVerdict,
+    approved_code: str | None = None,
+    debug_analysis: str | None = None,
+) -> DerivationRunResult:
+    """Build a DerivationRunResult with shared coder/QC fields."""
+    return DerivationRunResult(
+        variable=variable,
+        status=status,
+        coder_code=coder.python_code,
+        coder_approach=coder.approach,
+        qc_code=qc_code.python_code,
+        qc_approach=qc_code.approach,
+        qc_verdict=verdict,
+        approved_code=approved_code,
+        debug_analysis=debug_analysis,
+    )
+
+
 async def run_variable(
     variable: str,
     dag: DerivationDAG,
@@ -64,20 +87,31 @@ async def run_variable(
     vr = verify_derivation(variable, coder.python_code, qc_code.python_code, derived_df, available)
 
     if vr.verdict == QCVerdict.MATCH:
-        result = DerivationRunResult(
-            variable=variable,
-            status=DerivationStatus.APPROVED,
-            coder_code=coder.python_code,
-            coder_approach=coder.approach,
-            qc_code=qc_code.python_code,
-            qc_approach=qc_code.approach,
-            qc_verdict=vr.verdict,
+        result = _build_run_result(
+            variable,
+            DerivationStatus.APPROVED,
+            coder,
+            qc_code,
+            vr.verdict,
             approved_code=coder.python_code,
         )
         dag.apply_run_result(result)
         _apply_series_to_df(variable, vr.primary_result, derived_df)
         return
 
+    await _handle_mismatch(variable, dag, derived_df, coder, qc_code, vr, llm_base_url)
+
+
+async def _handle_mismatch(
+    variable: str,
+    dag: DerivationDAG,
+    derived_df: pd.DataFrame,
+    coder: DerivationCode,
+    qc_code: DerivationCode,
+    vr: VerificationResult,
+    llm_base_url: str,
+) -> None:
+    """Debug a QC mismatch, attempt fix, and update the DAG."""
     ctx = DebugContext(variable=variable, coder=coder, qc_code=qc_code, llm_base_url=llm_base_url)
     analysis = await _debug_variable(ctx, dag, derived_df, vr)
     approved_code = _resolve_approved_code(analysis, coder, qc_code)
@@ -85,14 +119,12 @@ async def run_variable(
     if approved_code:
         exec_result = execute_derivation(derived_df, approved_code, list(derived_df.columns))
         if exec_result.success and exec_result.series_json:
-            result = DerivationRunResult(
-                variable=variable,
-                status=DerivationStatus.APPROVED,
-                coder_code=coder.python_code,
-                coder_approach=coder.approach,
-                qc_code=qc_code.python_code,
-                qc_approach=qc_code.approach,
-                qc_verdict=vr.verdict,
+            result = _build_run_result(
+                variable,
+                DerivationStatus.APPROVED,
+                coder,
+                qc_code,
+                vr.verdict,
                 approved_code=approved_code,
                 debug_analysis=analysis.root_cause,
             )
@@ -100,15 +132,12 @@ async def run_variable(
             _apply_series_to_df(variable, exec_result, derived_df)
             return
 
-    # Mismatch — no approved code or execution failed
-    result = DerivationRunResult(
-        variable=variable,
-        status=DerivationStatus.QC_MISMATCH,
-        coder_code=coder.python_code,
-        coder_approach=coder.approach,
-        qc_code=qc_code.python_code,
-        qc_approach=qc_code.approach,
-        qc_verdict=vr.verdict,
+    result = _build_run_result(
+        variable,
+        DerivationStatus.QC_MISMATCH,
+        coder,
+        qc_code,
+        vr.verdict,
         debug_analysis=analysis.root_cause,
     )
     dag.apply_run_result(result)

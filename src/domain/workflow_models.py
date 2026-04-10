@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 import pandas as pd  # noqa: TC002 — used in WorkflowState dataclass field at runtime
@@ -11,8 +12,15 @@ from pydantic import BaseModel
 from src.domain.models import (  # noqa: TC001 — Pydantic needs these at runtime for model validation
     AuditRecord,
     AuditSummary,
-    WorkflowStatus,
 )
+
+
+class WorkflowStatus(StrEnum):
+    """Terminal workflow outcome."""
+
+    COMPLETED = "completed"
+    FAILED = "failed"
+
 
 if TYPE_CHECKING:
     from src.domain.dag import DerivationDAG

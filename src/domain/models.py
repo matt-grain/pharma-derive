@@ -246,10 +246,3 @@ class AuditSummary(BaseModel, frozen=True):
     human_interventions: int
     summary: str
     recommendations: list[str]
-
-
-class WorkflowStatus(StrEnum):
-    """Terminal workflow outcome — simplified from WorkflowStep."""
-
-    COMPLETED = "completed"
-    FAILED = "failed"

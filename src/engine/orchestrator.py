@@ -22,14 +22,13 @@ from src.domain.models import (
     AgentName,
     AuditAction,
     DerivationStatus,
-    WorkflowStatus,
     WorkflowStep,
 )
 from src.domain.source_loader import get_source_columns, load_source_data
 from src.domain.spec_parser import parse_spec
 from src.domain.synthetic import generate_synthetic
 from src.domain.workflow_fsm import WorkflowFSM
-from src.domain.workflow_models import WorkflowResult, WorkflowState
+from src.domain.workflow_models import WorkflowResult, WorkflowState, WorkflowStatus
 from src.engine.derivation_runner import run_variable
 
 if TYPE_CHECKING:

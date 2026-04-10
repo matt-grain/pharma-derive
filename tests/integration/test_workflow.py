@@ -19,8 +19,7 @@ from pathlib import Path  # noqa: TC003 — used at runtime in pytest fixture pa
 import pytest
 from pydantic import ValidationError
 
-from src.domain.models import WorkflowStatus
-from src.domain.workflow_models import WorkflowResult
+from src.domain.workflow_models import WorkflowResult, WorkflowStatus
 from src.engine.orchestrator import DerivationOrchestrator
 
 # ---------------------------------------------------------------------------
