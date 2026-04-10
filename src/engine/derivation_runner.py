@@ -7,15 +7,16 @@ Depends on agents/ and verification/ — called only from engine/.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from io import StringIO
 from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from src.agents.debugger import DebugAnalysis, DebuggerDeps, debugger_agent
+from src.agents.deps import CoderDeps
 from src.agents.derivation_coder import DerivationCode, coder_agent
 from src.agents.qc_programmer import qc_agent
-from src.agents.tools import CoderDeps
 from src.domain.executor import execute_derivation
 from src.domain.models import CorrectImplementation, DerivationStatus, QCVerdict
 from src.engine.llm_gateway import create_llm
@@ -24,6 +25,16 @@ from src.verification.comparator import VerificationResult, verify_derivation
 if TYPE_CHECKING:
     from src.domain.dag import DerivationDAG
     from src.domain.models import DerivationRule
+
+
+@dataclass
+class DebugContext:
+    """Context for the debug loop — groups params to keep _debug_variable under 5 args."""
+
+    variable: str
+    coder: DerivationCode
+    qc_code: DerivationCode
+    llm_base_url: str
 
 
 async def run_variable(
@@ -47,7 +58,8 @@ async def run_variable(
         _apply_approved(variable, dag, derived_df, vr)
         return
 
-    analysis = await _debug_variable(variable, dag, derived_df, vr, coder, qc_code, llm_base_url)
+    ctx = DebugContext(variable=variable, coder=coder, qc_code=qc_code, llm_base_url=llm_base_url)
+    analysis = await _debug_variable(ctx, dag, derived_df, vr)
     dag.update_node(variable, debug_analysis=analysis.root_cause, qc_verdict=vr.verdict)
 
     # Apply the debugger's recommended code (or suggested fix) to derived_df
@@ -125,24 +137,21 @@ def _apply_debug_fix(
 
 
 async def _debug_variable(
-    variable: str,
+    ctx: DebugContext,
     dag: DerivationDAG,
     derived_df: pd.DataFrame,
     vr: VerificationResult,
-    coder: DerivationCode,
-    qc_code: DerivationCode,
-    llm_base_url: str,
 ) -> DebugAnalysis:
     """Run the debugger agent for a QC mismatch."""
-    node = dag.get_node(variable)
+    node = dag.get_node(ctx.variable)
     summary = f"Mismatches: {vr.comparison.mismatch_count if vr.comparison else 'unknown'}"
-    llm = create_llm(base_url=llm_base_url)
+    llm = create_llm(base_url=ctx.llm_base_url)
     result = await debugger_agent.run(
-        f"Debug mismatch for {variable}",
+        f"Debug mismatch for {ctx.variable}",
         deps=DebuggerDeps(
             rule=node.rule,
-            coder_code=coder.python_code,
-            qc_code=qc_code.python_code,
+            coder_code=ctx.coder.python_code,
+            qc_code=ctx.qc_code.python_code,
             divergent_summary=summary,
             available_columns=list(derived_df.columns),
         ),

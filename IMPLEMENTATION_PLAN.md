@@ -13,23 +13,23 @@
 **Status:** 118 tests | 85% coverage | 17 import contracts | all green
 **Review:** Architecture review completed, 18/18 critical+warning fixes applied.
 
-## Phases 5-9 (PLANNED)
+## Phases 5-9
 
-| Phase | Title | Files | Agent | Dependencies |
-|-------|-------|-------|-------|-------------|
-| 5 | CDISC Pilot ADSL Spec + XPT Loader | ~6 | general-purpose | None |
-| 6 | Review Fix — Deferred Items | ~18 | general-purpose | None (parallel-safe with 5) |
-| 7 | Streamlit HITL UI | ~6 | general-purpose | Phase 5 (real data for demo) |
-| 8 | Design Document + Presentation | ~3 | general-purpose | Phases 5-7 (content) |
-| 9 | Docker Compose + README | ~4 | general-purpose | Phase 7 (full app) |
+| Phase | Title | Status | Tests |
+|-------|-------|--------|-------|
+| 5 | CDISC Pilot ADSL Spec + XPT Loader | ✅ Complete | 125 (+7) |
+| 6 | Review Fix — Deferred Items | ✅ Complete | 148 (+23) |
+| 7 | Streamlit HITL UI | ⏳ Pending | — |
+| 8 | Design Document + Presentation | ⏳ Pending | — |
+| 9 | Docker Compose + README | ⏳ Pending | — |
 
 ## Cross-Phase Dependencies
 
 ```
-Phase 5 ──┐
-           ├──► Phase 7 ──► Phase 8 ──► Phase 9
-Phase 6 ──┘         │
-                     └──► Phase 9
+Phase 5 ✅ ─┐
+             ├──► Phase 7 ──► Phase 8 ──► Phase 9
+Phase 6 ✅ ─┘         │
+                       └──► Phase 9
 ```
 
 ## Per-Phase Plan Files

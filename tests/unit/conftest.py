@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 from pydantic_ai import RunContext
 
-from src.agents.tools import CoderDeps
+from src.agents.deps import CoderDeps
 from src.domain.models import DerivationRule, OutputDType
 
 

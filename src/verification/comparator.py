@@ -39,6 +39,7 @@ def compute_ast_similarity(code_a: str, code_b: str) -> float:
     return SequenceMatcher(None, ast_a, ast_b).ratio()
 
 
+# 5 required + 2 with defaults = acceptable per project rules
 def verify_derivation(
     variable: str,
     coder_code: str,

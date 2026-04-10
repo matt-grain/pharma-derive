@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pydantic_ai import Agent
 
+from src.agents.deps import CoderDeps
 from src.agents.derivation_coder import DerivationCode
-from src.agents.tools import CoderDeps, execute_code, inspect_data
+from src.agents.tools import execute_code, inspect_data
 
 qc_agent: Agent[CoderDeps, DerivationCode] = Agent(
     "test",  # overridden at call time via model= parameter

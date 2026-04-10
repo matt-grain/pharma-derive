@@ -4,31 +4,31 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-import pandas as pd  # noqa: TC002 — used in WorkflowState dataclass field at runtime
 from loguru import logger
-from pydantic import BaseModel
 
 from src.agents.auditor import AuditorDeps, auditor_agent
 from src.audit.trail import AuditTrail
 from src.domain.dag import DerivationDAG
 from src.domain.models import (
+    AgentName,
+    AuditAction,
     AuditRecord,
-    AuditSummary,
     DerivationStatus,
-    TransformationSpec,
     WorkflowStatus,
     WorkflowStep,
 )
-from src.domain.spec_parser import generate_synthetic, get_source_columns, load_source_data, parse_spec
+from src.domain.source_loader import get_source_columns, load_source_data
+from src.domain.spec_parser import parse_spec
+from src.domain.synthetic import generate_synthetic
 from src.engine.derivation_runner import run_variable
 from src.engine.llm_gateway import create_llm
 from src.engine.workflow_fsm import WorkflowFSM
+from src.engine.workflow_models import WorkflowResult, WorkflowState
 
 if TYPE_CHECKING:
     from src.persistence.repositories import (
@@ -36,36 +36,6 @@ if TYPE_CHECKING:
         QCHistoryRepository,
         WorkflowStateRepository,
     )
-
-
-@dataclass
-class WorkflowState:
-    """Mutable workflow state carried across orchestration steps."""
-
-    workflow_id: str
-    spec: TransformationSpec | None = None
-    dag: DerivationDAG | None = None
-    derived_df: pd.DataFrame | None = None
-    synthetic_csv: str = ""
-    current_variable: str | None = None
-    audit_summary: AuditSummary | None = None
-    errors: list[str] = field(default_factory=lambda: list[str]())
-    started_at: str | None = None
-    completed_at: str | None = None
-
-
-class WorkflowResult(BaseModel, frozen=True):
-    """Immutable summary returned after a completed or failed run."""
-
-    workflow_id: str
-    study: str
-    status: WorkflowStatus
-    derived_variables: list[str]
-    qc_summary: dict[str, str]
-    audit_records: list[AuditRecord]
-    audit_summary: AuditSummary | None = None
-    errors: list[str]
-    duration_seconds: float
 
 
 class DerivationOrchestrator:
@@ -135,7 +105,7 @@ class DerivationOrchestrator:
         self._state.synthetic_csv = generate_synthetic(source_df, rows=self._state.spec.synthetic.rows).to_csv(
             index=False
         )
-        self._audit_trail.record(variable="", action="spec_parsed", agent="orchestrator")
+        self._audit_trail.record(variable="", action=AuditAction.SPEC_PARSED, agent=AgentName.ORCHESTRATOR)
         self._fsm.finish_spec_review()
 
     async def _step_build_dag(self) -> None:
@@ -174,8 +144,8 @@ class DerivationOrchestrator:
         node = self._state.dag.get_node(variable)
         self._audit_trail.record(
             variable=variable,
-            action="derivation_complete",
-            agent="orchestrator",
+            action=AuditAction.DERIVATION_COMPLETE,
+            agent=AgentName.ORCHESTRATOR,
             details={
                 "status": node.status.value,
                 "qc_verdict": node.qc_verdict.value if node.qc_verdict else None,
@@ -200,8 +170,8 @@ class DerivationOrchestrator:
         self._state.audit_summary = result.output
         self._audit_trail.record(
             variable="",
-            action="audit_complete",
-            agent="auditor",
+            action=AuditAction.AUDIT_COMPLETE,
+            agent=AgentName.AUDITOR,
             details={"auto_approved": str(result.output.auto_approved)},
         )
         self._fsm.audit_records.append(
@@ -209,8 +179,8 @@ class DerivationOrchestrator:
                 timestamp=datetime.now(UTC).isoformat(),
                 workflow_id=self._state.workflow_id,
                 variable="",
-                action="audit_complete",
-                agent="auditor",
+                action=AuditAction.AUDIT_COMPLETE,
+                agent=AgentName.AUDITOR,
                 details={"auto_approved": str(result.output.auto_approved)},
             )
         )

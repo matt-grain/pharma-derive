@@ -5,7 +5,8 @@ from __future__ import annotations
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
-from src.agents.tools import CoderDeps, execute_code, inspect_data
+from src.agents.deps import CoderDeps
+from src.agents.tools import execute_code, inspect_data
 
 
 class DerivationCode(BaseModel, frozen=True):

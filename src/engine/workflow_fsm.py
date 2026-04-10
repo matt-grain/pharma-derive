@@ -10,7 +10,7 @@ from statemachine.exceptions import TransitionNotAllowed
 
 __all__ = ["TransitionNotAllowed", "WorkflowFSM"]
 
-from src.domain.models import AuditRecord
+from src.domain.models import AgentName, AuditAction, AuditRecord
 
 
 class WorkflowFSM(StateMachine):
@@ -73,8 +73,8 @@ class WorkflowFSM(StateMachine):
                 timestamp=datetime.now(UTC).isoformat(),
                 workflow_id=self.workflow_id,
                 variable="",
-                action=f"state_transition:{target.id}",
-                agent="orchestrator",
+                action=f"{AuditAction.STATE_TRANSITION}:{target.id}",
+                agent=AgentName.ORCHESTRATOR,
                 details={"event": event, "from": source.id},
             )
         )

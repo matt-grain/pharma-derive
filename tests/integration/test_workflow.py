@@ -20,7 +20,8 @@ import pytest
 from pydantic import ValidationError
 
 from src.domain.models import WorkflowStatus
-from src.engine.orchestrator import DerivationOrchestrator, WorkflowResult
+from src.engine.orchestrator import DerivationOrchestrator
+from src.engine.workflow_models import WorkflowResult
 
 # ---------------------------------------------------------------------------
 # Orchestrator construction

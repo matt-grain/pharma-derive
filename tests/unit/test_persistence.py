@@ -226,3 +226,60 @@ async def test_init_db_creates_tables() -> None:
     assert "feedback" in table_names
     assert "qc_history" in table_names
     assert "workflow_states" in table_names
+
+
+# ---------------------------------------------------------------------------
+# FeedbackRepository — edge cases
+# ---------------------------------------------------------------------------
+
+
+async def test_feedback_repo_query_empty_returns_empty_list(db_session: AsyncSession) -> None:
+    """Querying feedback with no records returns empty list."""
+    # Arrange
+    repo = FeedbackRepository(db_session)
+
+    # Act
+    results = await repo.query_by_variable("NONEXISTENT")
+
+    # Assert
+    assert results == []
+
+
+async def test_feedback_repo_query_respects_limit(db_session: AsyncSession) -> None:
+    """Querying feedback respects the limit parameter."""
+    # Arrange
+    repo = FeedbackRepository(db_session)
+    for i in range(5):
+        await repo.store(variable="AGE", feedback=f"feedback {i}", action_taken="fixed", study="test")
+
+    # Act
+    results = await repo.query_by_variable("AGE", limit=2)
+
+    # Assert
+    assert len(results) == 2
+
+
+# ---------------------------------------------------------------------------
+# QCHistoryRepository — edge cases
+# ---------------------------------------------------------------------------
+
+
+async def test_qc_repo_stats_filtered_by_variable(db_session: AsyncSession) -> None:
+    """QC stats filtered by variable only count matching records."""
+    # Arrange
+    repo = QCHistoryRepository(db_session)
+    await repo.store(
+        variable="AGE_GROUP", verdict=QCVerdict.MATCH, coder_approach="cut", qc_approach="select", study="test"
+    )
+    await repo.store(
+        variable="AGE_GROUP", verdict=QCVerdict.MISMATCH, coder_approach="cut", qc_approach="where", study="test"
+    )
+    await repo.store(variable="TRTDUR", verdict=QCVerdict.MATCH, coder_approach="diff", qc_approach="sub", study="test")
+
+    # Act
+    stats = await repo.get_stats(variable="AGE_GROUP")
+
+    # Assert
+    assert stats.total == 2
+    assert stats.matches == 1
+    assert stats.mismatches == 1

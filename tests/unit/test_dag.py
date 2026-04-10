@@ -16,12 +16,17 @@ def _rule(variable: str, source_columns: list[str]) -> DerivationRule:
 
 
 def test_build_dag_simple_linear_chain() -> None:
+    # Arrange
     rules = [
         _rule("A", ["x"]),
         _rule("B", ["A"]),
         _rule("C", ["B"]),
     ]
+
+    # Act
     dag = DerivationDAG(rules, source_columns={"x"})
+
+    # Assert
     assert len(dag.layers) == 3
     assert dag.layers[0] == ["A"]
     assert dag.layers[1] == ["B"]
@@ -29,12 +34,17 @@ def test_build_dag_simple_linear_chain() -> None:
 
 
 def test_build_dag_parallel_layer() -> None:
+    # Arrange
     rules = [
         _rule("A", ["x"]),
         _rule("B", ["y"]),
         _rule("C", ["A", "B"]),
     ]
+
+    # Act
     dag = DerivationDAG(rules, source_columns={"x", "y"})
+
+    # Assert
     assert len(dag.layers) == 2
     assert set(dag.layers[0]) == {"A", "B"}
     assert dag.layers[1] == ["C"]
@@ -44,7 +54,10 @@ def test_build_dag_from_simple_mock_spec(
     sample_rules: list[DerivationRule],
     sample_source_columns: set[str],
 ) -> None:
+    # Act
     dag = DerivationDAG(sample_rules, sample_source_columns)
+
+    # Assert
     assert len(dag.layers) == 3
 
 
@@ -52,7 +65,10 @@ def test_dag_layers_correct_order(
     sample_rules: list[DerivationRule],
     sample_source_columns: set[str],
 ) -> None:
+    # Act
     dag = DerivationDAG(sample_rules, sample_source_columns)
+
+    # Assert
     assert set(dag.layers[0]) == {"AGE_GROUP", "TREATMENT_DURATION"}
     assert dag.layers[1] == ["IS_ELDERLY"]
     assert dag.layers[2] == ["RISK_SCORE"]
@@ -62,24 +78,33 @@ def test_dag_execution_order_respects_dependencies(
     sample_rules: list[DerivationRule],
     sample_source_columns: set[str],
 ) -> None:
+    # Act
     dag = DerivationDAG(sample_rules, sample_source_columns)
     order = dag.execution_order
+
+    # Assert
     assert order.index("AGE_GROUP") < order.index("IS_ELDERLY")
     assert order.index("IS_ELDERLY") < order.index("RISK_SCORE")
     assert order.index("TREATMENT_DURATION") < order.index("RISK_SCORE")
 
 
 def test_dag_cycle_detection_raises() -> None:
+    # Arrange
     rules = [
         _rule("A", ["B"]),
         _rule("B", ["A"]),
     ]
+
+    # Act & Assert
     with pytest.raises(ValueError, match="Circular dependency detected"):
         DerivationDAG(rules, source_columns=set())
 
 
 def test_dag_unknown_source_column_raises() -> None:
+    # Arrange
     rules = [_rule("A", ["nonexistent"])]
+
+    # Act & Assert
     with pytest.raises(ValueError, match="Unknown source column: nonexistent"):
         DerivationDAG(rules, source_columns=set())
 
@@ -88,9 +113,17 @@ def test_dag_update_node_status(
     sample_rules: list[DerivationRule],
     sample_source_columns: set[str],
 ) -> None:
+    # Arrange
     dag = DerivationDAG(sample_rules, sample_source_columns)
+
+    # Act
     dag.update_node("AGE_GROUP", status=DerivationStatus.IN_PROGRESS)
+
+    # Assert
     assert dag.get_node("AGE_GROUP").status == DerivationStatus.IN_PROGRESS
 
+    # Act
     dag.update_node("AGE_GROUP", coder_code="df['age'].map(...)")
+
+    # Assert
     assert dag.get_node("AGE_GROUP").coder_code == "df['age'].map(...)"

@@ -143,6 +143,25 @@ class VerificationRecommendation(StrEnum):
     AUTO_APPROVE = "auto_approve"
 
 
+class AuditAction(StrEnum):
+    """Actions recorded in the audit trail."""
+
+    SPEC_PARSED = "spec_parsed"
+    DERIVATION_COMPLETE = "derivation_complete"
+    AUDIT_COMPLETE = "audit_complete"
+    STATE_TRANSITION = "state_transition"
+
+
+class AgentName(StrEnum):
+    """Agent identifiers used in audit records."""
+
+    ORCHESTRATOR = "orchestrator"
+    CODER = "coder"
+    QC_PROGRAMMER = "qc_programmer"
+    DEBUGGER = "debugger"
+    AUDITOR = "auditor"
+
+
 class DAGNode(BaseModel):
     """Enhanced DAG node — carries rule + execution provenance."""
 

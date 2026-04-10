@@ -161,3 +161,15 @@ name = Audit cannot import from Persistence
 type = forbidden
 source_modules = src.audit
 forbidden_modules = src.persistence
+
+[importlinter:contract:audit-no-agents]
+name = Audit cannot import from Agents
+type = forbidden
+source_modules = src.audit
+forbidden_modules = src.agents
+
+[importlinter:contract:ui-no-persistence]
+name = UI cannot import Persistence directly
+type = forbidden
+source_modules = src.ui
+forbidden_modules = src.persistence

@@ -7,15 +7,13 @@ from __future__ import annotations
 
 import io
 from contextlib import redirect_stdout
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Final, cast
+from typing import Any, Final, cast
 
 import numpy as np
 import pandas as pd
 from pydantic_ai import RunContext  # noqa: TC002 — needed at runtime for PydanticAI get_type_hints() tool registration
 
-if TYPE_CHECKING:
-    from src.domain.models import DerivationRule
+from src.agents.deps import CoderDeps  # noqa: TC001 — needed at runtime for PydanticAI tool registration
 
 # Builtins permitted inside execute_code sandbox.
 # Deliberately minimal — no I/O, no import, no introspection.
@@ -49,16 +47,6 @@ _SAFE_BUILTINS: Final[dict[str, Any]] = {
 _BLOCKED_TOKENS: Final[frozenset[str]] = frozenset(
     {"import", "open", "eval", "exec", "__import__", "compile", "globals", "locals", "getattr", "setattr", "delattr"}
 )
-
-
-@dataclass
-class CoderDeps:
-    """Dependencies injected into Coder and QC agents."""
-
-    df: pd.DataFrame
-    synthetic_csv: str
-    rule: DerivationRule
-    available_columns: list[str]
 
 
 def _build_schema_section(df: pd.DataFrame, columns: list[str]) -> str:

@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.domain.dag import DerivationDAG
-from src.domain.spec_parser import generate_synthetic, get_source_columns, load_source_data, parse_spec
+from src.domain.source_loader import get_source_columns, load_source_data
+from src.domain.spec_parser import parse_spec
+from src.domain.synthetic import generate_synthetic
 
 _ADSL_SPEC = Path("specs/adsl_cdiscpilot01.yaml")
 
