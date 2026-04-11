@@ -81,12 +81,7 @@ class DerivationOrchestrator:
 
     def approve(self) -> None:
         """Release the HITL gate — workflow proceeds to audit step."""
-        self._audit_trail.record(
-            variable="",
-            action="human_approved",
-            agent="human",
-            details={"gate": "review", "action": "approved all derivations"},
-        )
+        self._audit_trail.record(variable="", action="human_approved", agent="human", details={"gate": "review"})
         self._approval_event.set()
 
     async def run(self) -> WorkflowResult:

@@ -25,6 +25,12 @@ export const api = {
   listSpecs: (): Promise<SpecItem[]> =>
     fetchJson<SpecItem[]>(`${BASE}/specs/`),
 
+  getSpecContent: async (filename: string): Promise<string> => {
+    const res = await fetch(`${BASE}/specs/${filename}`)
+    if (!res.ok) throw new Error(`API error ${res.status}: ${res.statusText}`)
+    return res.text()
+  },
+
   startWorkflow: (specPath: string): Promise<StartWorkflowResponse> =>
     fetchJson<StartWorkflowResponse>(`${BASE}/workflows/`, {
       method: 'POST',

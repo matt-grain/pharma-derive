@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Play, FileCode } from 'lucide-react'
+import { Play, FileCode, ChevronDown, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Table,
@@ -10,16 +11,31 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useSpecs, useStartWorkflow } from '@/hooks/useWorkflows'
+import { api } from '@/lib/api'
 
 export function SpecsPage() {
   const navigate = useNavigate()
   const { data: specs, isLoading, error } = useSpecs()
   const { mutate: startWorkflow, isPending, variables: pendingSpec } = useStartWorkflow()
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [yamlContent, setYamlContent] = useState<Record<string, string>>({})
 
   function handleRun(filename: string) {
     startWorkflow(filename, {
       onSuccess: (data) => navigate(`/workflows/${data.workflow_id}`),
     })
+  }
+
+  async function toggleExpand(filename: string) {
+    if (expanded === filename) {
+      setExpanded(null)
+      return
+    }
+    setExpanded(filename)
+    if (!yamlContent[filename]) {
+      const content = await api.getSpecContent(filename)
+      setYamlContent((prev) => ({ ...prev, [filename]: content }))
+    }
   }
 
   return (
@@ -58,6 +74,7 @@ export function SpecsPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
+                <TableHead className="w-10" />
                 <TableHead className="w-48">Study</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead className="w-32 text-right">Derivations</TableHead>
@@ -66,30 +83,51 @@ export function SpecsPage() {
             </TableHeader>
             <TableBody>
               {specs.map((spec) => (
-                <TableRow key={spec.filename} className="hover:bg-slate-50">
-                  <TableCell>
-                    <div>
-                      <p className="font-medium text-slate-800">{spec.study}</p>
-                      <p className="text-xs text-slate-400">{spec.filename}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-slate-600">{spec.description}</TableCell>
-                  <TableCell className="text-right text-sm font-medium text-slate-700">
-                    {spec.derivation_count}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1.5 text-xs"
-                      disabled={isPending && pendingSpec === spec.filename}
-                      onClick={() => handleRun(spec.filename)}
-                    >
-                      <Play size={12} />
-                      {isPending && pendingSpec === spec.filename ? 'Starting…' : 'Run'}
-                    </Button>
-                  </TableCell>
-                </TableRow>
+                <>
+                  <TableRow
+                    key={spec.filename}
+                    className="cursor-pointer hover:bg-slate-50"
+                    onClick={() => void toggleExpand(spec.filename)}
+                  >
+                    <TableCell className="w-10 px-3 text-slate-400">
+                      {expanded === spec.filename ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </TableCell>
+                    <TableCell>
+                      <div>
+                        <p className="font-medium text-slate-800">{spec.study}</p>
+                        <p className="text-xs text-slate-400">{spec.filename}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-slate-600">{spec.description}</TableCell>
+                    <TableCell className="text-right text-sm font-medium text-slate-700">
+                      {spec.derivation_count}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 text-xs"
+                        disabled={isPending && pendingSpec === spec.filename}
+                        onClick={(e) => { e.stopPropagation(); handleRun(spec.filename) }}
+                      >
+                        <Play size={12} />
+                        {isPending && pendingSpec === spec.filename ? 'Starting…' : 'Run'}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                  {expanded === spec.filename && (
+                    <TableRow key={`${spec.filename}-yaml`}>
+                      <TableCell colSpan={5} className="p-0">
+                        <pre
+                          className="overflow-y-auto whitespace-pre-wrap break-words bg-slate-950 p-4 text-xs leading-relaxed text-emerald-300"
+                          style={{ fontFamily: "'JetBrains Mono', monospace", maxHeight: 400 }}
+                        >
+                          {yamlContent[spec.filename] ?? 'Loading...'}
+                        </pre>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </>
               ))}
             </TableBody>
           </Table>

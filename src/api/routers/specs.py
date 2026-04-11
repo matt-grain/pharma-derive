@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import PlainTextResponse
 
 from src.api.schemas import SpecListItem
 
@@ -36,3 +37,12 @@ async def list_specs() -> list[SpecListItem]:
         except (yaml.YAMLError, KeyError, OSError):
             continue  # skip malformed specs
     return items
+
+
+@router.get("/{filename}", response_class=PlainTextResponse, status_code=200)
+async def get_spec_content(filename: str) -> str:
+    """Return the raw YAML content of a spec file."""
+    path = Path("specs") / filename
+    if not path.exists() or not path.suffix == ".yaml":
+        raise HTTPException(status_code=404, detail=f"Spec {filename!r} not found")
+    return path.read_text(encoding="utf-8")
