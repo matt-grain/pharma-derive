@@ -17,8 +17,8 @@ type PipelineViewProps = {
   steps: PipelineStep[]
 }
 
-const NODE_W = 220
-const NODE_H = 80
+const NODE_W = 280
+const NODE_H = 96
 
 const STEP_STYLE: Record<string, { icon: typeof Bot; bg: string; border: string }> = {
   agent:        { icon: Bot,       bg: '#eff6ff', border: '#93c5fd' },
@@ -28,10 +28,30 @@ const STEP_STYLE: Record<string, { icon: typeof Bot; bg: string; border: string 
   hitl_gate:    { icon: UserCheck, bg: '#fffbeb', border: '#fcd34d' },
 }
 
+/** Build the label showing which agents a step uses. */
+function agentLabel(step: PipelineStep): string | null {
+  if (step.agent) return step.agent
+  if (step.agents && step.agents.length > 0) return step.agents.join(' + ')
+
+  // parallel_map: read agent names from config block
+  const coder = step.config['coder_agent']
+  const qc = step.config['qc_agent']
+  const dbg = step.config['debugger_agent']
+  if (coder) {
+    const parts = [String(coder)]
+    if (qc) parts.push(String(qc))
+    if (dbg) parts.push(String(dbg))
+    return parts.join(' + ')
+  }
+
+  if (step.builtin) return step.builtin
+  return null
+}
+
 function buildLayout(steps: PipelineStep[]): { nodes: Node[]; edges: Edge[] } {
   const g = new dagre.graphlib.Graph()
   g.setDefaultEdgeLabel(() => ({}))
-  g.setGraph({ rankdir: 'LR', nodesep: 30, ranksep: 80 })
+  g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 60 })
 
   steps.forEach((s) => g.setNode(s.id, { width: NODE_W, height: NODE_H }))
 
@@ -62,7 +82,7 @@ function buildLayout(steps: PipelineStep[]): { nodes: Node[]; edges: Edge[] } {
       data: { step: s },
       style: {
         border: `2px solid ${style.border}`,
-        borderRadius: 8,
+        borderRadius: 10,
         background: style.bg,
         width: NODE_W,
         height: NODE_H,
@@ -78,20 +98,26 @@ function PipelineNodeContent({ data }: { data: { step: PipelineStep } }) {
   const { step } = data
   const style = STEP_STYLE[step.type] ?? STEP_STYLE['builtin']
   const Icon = style.icon
-  const label = step.agent ?? step.agents?.join(' + ') ?? step.builtin ?? step.type
+  const agents = agentLabel(step)
 
   return (
     <>
       <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
-      <div className="flex h-full flex-col justify-between px-3 py-2">
-        <div className="flex items-center gap-1.5">
-          <Icon size={13} className="shrink-0 text-slate-500" />
-          <span className="truncate text-xs font-semibold text-slate-800">{step.id}</span>
+      <div className="flex h-full flex-col justify-between px-3.5 py-2.5">
+        <div className="flex items-center gap-2">
+          <Icon size={14} className="shrink-0 text-slate-500" />
+          <span className="text-[13px] font-semibold text-slate-800">{step.id}</span>
+          <span className="ml-auto rounded bg-white/60 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-slate-400">
+            {step.type.replace('_', ' ')}
+          </span>
         </div>
-        {step.description && (
-          <p className="truncate text-[10px] text-slate-500">{step.description}</p>
+        <p className="text-[11px] leading-snug text-slate-500">{step.description}</p>
+        {agents && (
+          <div className="flex items-center gap-1">
+            <Bot size={10} className="shrink-0 text-slate-400" />
+            <span className="font-mono text-[10px] text-slate-500">{agents}</span>
+          </div>
         )}
-        <span className="truncate font-mono text-[10px] text-slate-400">{label}</span>
       </div>
       <Handle type="source" position={Position.Right} style={{ visibility: 'hidden' }} />
     </>
@@ -103,13 +129,13 @@ export function PipelineView({ steps }: PipelineViewProps) {
   const { nodes, edges } = useMemo(() => buildLayout(steps), [steps])
 
   return (
-    <div className="h-[340px] overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+    <div className="h-[400px] overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.3 }}
+        fitViewOptions={{ padding: 0.2 }}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
