@@ -87,6 +87,10 @@ pipeline:
       type: parallel_map          # Iterate DAG layers in parallel
       over: dag_layers
       depends_on: [build_dag]
+      config:
+        coder_agent: coder        # Agent YAML name for primary coder
+        qc_agent: qc_programmer   # Agent YAML name for QC (omit for coder-only mode)
+        debugger_agent: debugger   # Agent YAML name for mismatch debugging (omit to skip)
 
     - id: human_review
       type: hitl_gate             # Pause for human approval
@@ -114,8 +118,33 @@ pipeline:
 | `agent` | Run a single PydanticAI agent | `agent` (name of YAML in `config/agents/`) |
 | `builtin` | Run a non-LLM Python function | `builtin` (key in `BUILTIN_REGISTRY`) |
 | `gather` | Run N agents in parallel | `agents` (list of agent names) |
-| `parallel_map` | Map sub-steps over a collection | `over` (currently only `dag_layers`) |
+| `parallel_map` | Map sub-steps over a collection | `over`, `config.coder_agent` (see below) |
 | `hitl_gate` | Pause workflow for human approval | `config.message` (displayed in UI) |
+
+### `parallel_map` Agent Config
+
+The `parallel_map` step runs per-variable derivation across DAG layers. It uses a dedicated runner (`derivation_runner.py`) that orchestrates coder, QC, verification, and debugging. Agent assignments are declared in the `config` block:
+
+| Config Key | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `coder_agent` | string | yes | Agent name for primary code generation (e.g., `coder`) |
+| `qc_agent` | string | no | Agent name for QC double-programming (e.g., `qc_programmer`). **Omit to skip QC** — coder output is auto-approved (express mode). |
+| `debugger_agent` | string | no | Agent name for mismatch debugging (e.g., `debugger`). **Omit to skip debugging** — mismatches are recorded but not resolved. |
+
+**Examples:**
+
+```yaml
+# Full QC pipeline (standard/enterprise)
+config:
+  coder_agent: coder
+  qc_agent: qc_programmer
+  debugger_agent: debugger
+
+# Coder-only mode (express — rapid prototyping)
+config:
+  coder_agent: coder
+  # qc_agent and debugger_agent omitted — no QC, no debugging
+```
 
 ### Available Builtins
 
