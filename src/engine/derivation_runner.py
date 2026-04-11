@@ -13,10 +13,8 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from src.agents.debugger import debugger_agent
 from src.agents.deps import CoderDeps, DebuggerDeps
-from src.agents.derivation_coder import coder_agent
-from src.agents.qc_programmer import qc_agent
+from src.agents.factory import load_agent
 from src.agents.types import (  # noqa: TC001 — used at runtime in @dataclass fields and function signatures
     DebugAnalysis,
     DerivationCode,
@@ -156,10 +154,12 @@ async def _run_coder_and_qc(
 ) -> tuple[DerivationCode, DerivationCode]:
     """Fan-out coder and QC agent calls in parallel."""
     llm = create_llm(base_url=llm_base_url)
+    coder = load_agent("config/agents/coder.yaml")
+    qc = load_agent("config/agents/qc_programmer.yaml")
     deps = CoderDeps(df=df, synthetic_csv=synthetic_csv, rule=rule, available_columns=available)
     coder_out, qc_out = await asyncio.gather(
-        coder_agent.run(str(rule.logic), deps=deps, model=llm),
-        qc_agent.run(str(rule.logic), deps=deps, model=llm),
+        coder.run(str(rule.logic), deps=deps, model=llm),
+        qc.run(str(rule.logic), deps=deps, model=llm),
     )
     return coder_out.output, qc_out.output
 
@@ -188,8 +188,9 @@ async def _debug_variable(
     """Run the debugger agent for a QC mismatch."""
     node = dag.get_node(ctx.variable)
     summary = f"Mismatches: {vr.comparison.mismatch_count if vr.comparison else 'unknown'}"
+    debugger = load_agent("config/agents/debugger.yaml")
     llm = create_llm(base_url=ctx.llm_base_url)
-    result = await debugger_agent.run(
+    result = await debugger.run(
         f"Debug mismatch for {ctx.variable}",
         deps=DebuggerDeps(
             rule=node.rule,

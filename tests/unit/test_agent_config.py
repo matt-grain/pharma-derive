@@ -1,17 +1,14 @@
 """Tests for agent configuration and LLM gateway.
 
 Verifies output types, tool registration, and system prompt content.
+Agents are loaded from YAML via load_agent() — no module-level singletons.
 No LLM calls are made.
 """
 
 from __future__ import annotations
 
-from src.agents.auditor import auditor_agent
-from src.agents.debugger import debugger_agent
 from src.agents.deps import AuditorDeps
-from src.agents.derivation_coder import coder_agent
-from src.agents.qc_programmer import qc_agent
-from src.agents.spec_interpreter import spec_interpreter_agent
+from src.agents.factory import load_agent
 from src.agents.types import DebugAnalysis, DerivationCode, SpecInterpretation
 from src.domain.models import AuditSummary, SpecMetadata
 from tests.unit.conftest import get_system_prompts, get_tool_names
@@ -23,27 +20,32 @@ from tests.unit.conftest import get_system_prompts, get_tool_names
 
 def test_spec_interpreter_agent_has_correct_output_type() -> None:
     # Act & Assert
-    assert spec_interpreter_agent.output_type is SpecInterpretation
+    agent = load_agent("config/agents/spec_interpreter.yaml")
+    assert agent.output_type is SpecInterpretation
 
 
 def test_coder_agent_has_correct_output_type() -> None:
     # Act & Assert
-    assert coder_agent.output_type is DerivationCode
+    agent = load_agent("config/agents/coder.yaml")
+    assert agent.output_type is DerivationCode
 
 
 def test_qc_agent_has_correct_output_type() -> None:
     # Act & Assert
-    assert qc_agent.output_type is DerivationCode
+    agent = load_agent("config/agents/qc_programmer.yaml")
+    assert agent.output_type is DerivationCode
 
 
 def test_debugger_agent_has_correct_output_type() -> None:
     # Act & Assert
-    assert debugger_agent.output_type is DebugAnalysis
+    agent = load_agent("config/agents/debugger.yaml")
+    assert agent.output_type is DebugAnalysis
 
 
 def test_auditor_agent_has_correct_output_type() -> None:
     # Act & Assert
-    assert auditor_agent.output_type is AuditSummary
+    agent = load_agent("config/agents/auditor.yaml")
+    assert agent.output_type is AuditSummary
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +55,8 @@ def test_auditor_agent_has_correct_output_type() -> None:
 
 def test_coder_agent_has_inspect_and_execute_tools() -> None:
     # Act
-    tool_names = get_tool_names(coder_agent)
+    agent = load_agent("config/agents/coder.yaml")
+    tool_names = get_tool_names(agent)
 
     # Assert
     assert "inspect_data" in tool_names
@@ -62,7 +65,8 @@ def test_coder_agent_has_inspect_and_execute_tools() -> None:
 
 def test_qc_agent_has_inspect_and_execute_tools() -> None:
     # Act
-    tool_names = get_tool_names(qc_agent)
+    agent = load_agent("config/agents/qc_programmer.yaml")
+    tool_names = get_tool_names(agent)
 
     # Assert
     assert "inspect_data" in tool_names
@@ -71,7 +75,8 @@ def test_qc_agent_has_inspect_and_execute_tools() -> None:
 
 def test_qc_agent_system_prompt_mentions_different_approach() -> None:
     # Act
-    combined = get_system_prompts(qc_agent)
+    agent = load_agent("config/agents/qc_programmer.yaml")
+    combined = get_system_prompts(agent)
 
     # Assert
     assert "different" in combined or "independent" in combined
@@ -79,12 +84,14 @@ def test_qc_agent_system_prompt_mentions_different_approach() -> None:
 
 def test_debugger_agent_has_no_tools() -> None:
     # Act & Assert
-    assert len(get_tool_names(debugger_agent)) == 0
+    agent = load_agent("config/agents/debugger.yaml")
+    assert len(get_tool_names(agent)) == 0
 
 
 def test_auditor_agent_has_no_tools() -> None:
     # Act & Assert
-    assert len(get_tool_names(auditor_agent)) == 0
+    agent = load_agent("config/agents/auditor.yaml")
+    assert len(get_tool_names(agent)) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -166,9 +173,15 @@ def test_spec_metadata_is_accessible_in_auditor_deps() -> None:
 
 def test_all_agents_have_name_set() -> None:
     """Every agent must have a name for audit trail metadata."""
+    # Arrange
+    agents = {
+        "auditor": load_agent("config/agents/auditor.yaml"),
+        "coder": load_agent("config/agents/coder.yaml"),
+        "qc_programmer": load_agent("config/agents/qc_programmer.yaml"),
+        "debugger": load_agent("config/agents/debugger.yaml"),
+        "spec_interpreter": load_agent("config/agents/spec_interpreter.yaml"),
+    }
+
     # Act & Assert
-    assert auditor_agent.name == "auditor"
-    assert coder_agent.name == "coder"
-    assert qc_agent.name == "qc_programmer"
-    assert debugger_agent.name == "debugger"
-    assert spec_interpreter_agent.name == "spec_interpreter"
+    for expected_name, agent in agents.items():
+        assert agent.name == expected_name, f"Agent '{expected_name}' has name '{agent.name}'"

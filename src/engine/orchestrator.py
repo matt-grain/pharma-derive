@@ -12,8 +12,8 @@ from uuid import uuid4
 
 from loguru import logger
 
-from src.agents.auditor import auditor_agent
 from src.agents.deps import AuditorDeps
+from src.agents.factory import load_agent
 from src.audit.trail import AuditTrail
 from src.config.llm_gateway import create_llm
 from src.config.settings import get_settings
@@ -258,8 +258,9 @@ class DerivationOrchestrator:
             raise WorkflowStateError("spec", "audit")
         self._fsm.start_auditing()
         dag_lines = [f"{v}: {self._state.dag.get_node(v).status}" for v in self._state.dag.execution_order]
+        auditor = load_agent("config/agents/auditor.yaml")
         llm = create_llm(base_url=self._llm_base_url)
-        result = await auditor_agent.run(
+        result = await auditor.run(
             "Generate audit summary",
             deps=AuditorDeps(
                 dag_summary="\n".join(dag_lines),
@@ -272,7 +273,7 @@ class DerivationOrchestrator:
         self._audit_trail.record(
             variable="",
             action=AuditAction.AUDIT_COMPLETE,
-            agent=auditor_agent.name or "auditor",
+            agent=auditor.name or "auditor",
             details={"auto_approved": str(result.output.auto_approved)},
         )
 
