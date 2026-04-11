@@ -5,18 +5,17 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from src.api.schemas import PipelineOut, PipelineStepOut
+from src.config.settings import get_settings
 from src.domain.pipeline_models import PipelineDefinition, load_pipeline
 
 router = APIRouter(prefix="/api/v1", tags=["pipeline"])
-
-_DEFAULT_PIPELINE_PATH = "config/pipelines/clinical_derivation.yaml"
 
 
 @router.get("/pipeline", response_model=PipelineOut, status_code=200)
 async def get_pipeline() -> PipelineOut:
     """Return the current pipeline definition for UI rendering."""
     try:
-        pipeline = load_pipeline(_DEFAULT_PIPELINE_PATH)
+        pipeline = load_pipeline(get_settings().default_pipeline)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return _to_pipeline_out(pipeline)

@@ -20,6 +20,8 @@ pipeline:
       over: dag_layers
       depends_on: [build_dag]
       description: "Derive variables — coder only, no QC double-programming"
+      config:
+        coder_agent: coder
 
     - id: export
       type: builtin

@@ -258,7 +258,8 @@ class DerivationOrchestrator:
             raise WorkflowStateError("spec", "audit")
         self._fsm.start_auditing()
         dag_lines = [f"{v}: {self._state.dag.get_node(v).status}" for v in self._state.dag.execution_order]
-        auditor = load_agent("config/agents/auditor.yaml")
+        agent_dir = get_settings().agent_config_dir
+        auditor = load_agent(f"{agent_dir}/auditor.yaml")
         llm = create_llm(base_url=self._llm_base_url)
         result = await auditor.run(
             "Generate audit summary",

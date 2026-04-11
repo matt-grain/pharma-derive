@@ -27,6 +27,10 @@ pipeline:
       over: dag_layers
       depends_on: [build_dag]
       description: "Derive with coder+QC double programming, verify, debug if mismatch"
+      config:
+        coder_agent: coder
+        qc_agent: qc_programmer
+        debugger_agent: debugger
 
     - id: variable_review
       type: hitl_gate

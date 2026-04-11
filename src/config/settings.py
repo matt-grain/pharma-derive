@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     api_port: int = 8000
     cors_origins: str = "http://localhost:3000"
     output_dir: str = "output"
+    agent_config_dir: str = "config/agents"
+    default_pipeline: str = "config/pipelines/clinical_derivation.yaml"
 
 
 @lru_cache(maxsize=1)

@@ -43,8 +43,10 @@ class AgentStepExecutor(StepExecutor):
         # Import inside method to prevent circular imports at module load time
         from src.agents.factory import load_agent
         from src.config.llm_gateway import create_llm
+        from src.config.settings import get_settings
 
-        agent = load_agent(f"config/agents/{step.agent}.yaml")
+        agent_dir = get_settings().agent_config_dir
+        agent = load_agent(f"{agent_dir}/{step.agent}.yaml")
         llm = create_llm(base_url=ctx.llm_base_url)
         deps, prompt = build_agent_deps_and_prompt(step, ctx)
         result = await agent.run(prompt, deps=deps, model=llm)
@@ -93,11 +95,13 @@ class GatherStepExecutor(StepExecutor):
         # Import inside method to prevent circular imports at module load time
         from src.agents.factory import load_agent
         from src.config.llm_gateway import create_llm
+        from src.config.settings import get_settings
 
+        agent_dir = get_settings().agent_config_dir
         llm = create_llm(base_url=ctx.llm_base_url)
         tasks: list[Any] = []  # Any: load_agent returns Agent[Any, Any] — coroutines are dynamically typed
         for agent_name in step.agents:
-            agent = load_agent(f"config/agents/{agent_name}.yaml")
+            agent = load_agent(f"{agent_dir}/{agent_name}.yaml")
             deps, prompt = build_agent_deps_and_prompt(step, ctx, agent_name=agent_name)
             tasks.append(agent.run(prompt, deps=deps, model=llm))
 
@@ -152,6 +156,12 @@ class ParallelMapStepExecutor(StepExecutor):
         # Delegate to existing derivation runner — do NOT reimplement derivation logic here
         from src.engine.derivation_runner import run_variable
 
+        coder_name = str(step.config.get("coder_agent", "coder"))
+        qc_raw = step.config.get("qc_agent")
+        debugger_raw = step.config.get("debugger_agent")
+        qc_name: str | None = str(qc_raw) if qc_raw is not None else None
+        debugger_name: str | None = str(debugger_raw) if debugger_raw is not None else None
+
         layers = ctx.dag.layers
         for layer in layers:
             await asyncio.gather(
@@ -162,6 +172,9 @@ class ParallelMapStepExecutor(StepExecutor):
                         derived_df=ctx.derived_df,  # type: ignore[arg-type]  # ctx.dag non-None implies derived_df set
                         synthetic_csv=ctx.synthetic_csv,
                         llm_base_url=ctx.llm_base_url,
+                        coder_agent_name=coder_name,
+                        qc_agent_name=qc_name,
+                        debugger_agent_name=debugger_name,
                     )
                     for v in layer
                 ]

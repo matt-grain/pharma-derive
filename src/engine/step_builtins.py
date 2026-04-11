@@ -69,25 +69,6 @@ BUILTIN_REGISTRY: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 
-def build_agent_deps_and_prompt(
-    step: StepDefinition,
-    ctx: PipelineContext,
-    agent_name: str | None = None,
-) -> tuple[Any, str]:
-    """Build agent-specific deps and prompt based on agent name."""
-    name = agent_name or step.agent or ""
-
-    if name == "spec_interpreter":
-        return _build_spec_interpreter_deps(ctx)
-    if name == "auditor":
-        return _build_auditor_deps(ctx)
-    if name in ("coder", "qc_programmer"):
-        msg = f"Agent '{name}' should be invoked via parallel_map, not directly"
-        raise ValueError(msg)
-    msg = f"No deps builder for agent '{name}'"
-    raise ValueError(msg)
-
-
 def _build_spec_interpreter_deps(ctx: PipelineContext) -> tuple[Any, str]:
     from src.agents.deps import SpecInterpreterDeps
 
@@ -114,3 +95,30 @@ def _build_auditor_deps(ctx: PipelineContext) -> tuple[Any, str]:
         spec_metadata=ctx.spec.metadata,
     )
     return deps, "Generate audit summary"
+
+
+_PARALLEL_MAP_ONLY_AGENTS: frozenset[str] = frozenset({"coder", "qc_programmer", "debugger"})
+
+# Registry maps agent name → deps builder. Add new entries here when registering new agents.
+AGENT_DEPS_BUILDERS: dict[str, Any] = {
+    "spec_interpreter": _build_spec_interpreter_deps,
+    "auditor": _build_auditor_deps,
+}
+
+
+def build_agent_deps_and_prompt(
+    step: StepDefinition,
+    ctx: PipelineContext,
+    agent_name: str | None = None,
+) -> tuple[Any, str]:
+    """Build agent-specific deps and prompt based on agent name."""
+    name = agent_name or step.agent or ""
+
+    builder = AGENT_DEPS_BUILDERS.get(name)
+    if builder is not None:
+        return builder(ctx)
+    if name in _PARALLEL_MAP_ONLY_AGENTS:
+        msg = f"Agent '{name}' should be invoked via parallel_map, not directly"
+        raise ValueError(msg)
+    msg = f"No deps builder for agent '{name}'"
+    raise ValueError(msg)

@@ -56,7 +56,7 @@ async def create_orchestrator(
 
 async def create_pipeline_orchestrator(
     spec_path: str | Path,
-    pipeline_path: str | Path = "config/pipelines/clinical_derivation.yaml",
+    pipeline_path: str | Path | None = None,
     llm_base_url: str | None = None,
     output_dir: Path | None = None,
     database_url: str | None = None,
@@ -72,7 +72,8 @@ async def create_pipeline_orchestrator(
     session_factory = await init_db(url)
     session = session_factory()
 
-    pipeline = load_pipeline(pipeline_path)
+    resolved_pipeline_path = pipeline_path if pipeline_path is not None else settings.default_pipeline
+    pipeline = load_pipeline(resolved_pipeline_path)
     wf_id = uuid4().hex[:8]
 
     ctx = PipelineContext(
