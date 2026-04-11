@@ -147,3 +147,108 @@ pipeline:
 2. Modify steps — add/remove HITL gates, change agent assignments, adjust export formats
 3. Validate: `uv run python -c "from src.domain.pipeline_models import load_pipeline; print(load_pipeline('config/pipelines/your_pipeline.yaml'))"`
 4. Every pipeline must start with `parse_spec` and end with `export`
+
+## Adding a New Step Type
+
+Most pipeline customizations DON'T require new code — they combine existing step types:
+
+| I want to... | How | New code? |
+|-------------|-----|-----------|
+| Add an LLM agent step | `type: agent` + new agent YAML (see `config/agents/README.md`) | Deps class + builder only |
+| Run agents in parallel | `type: gather` with `agents: [a, b]` | No |
+| Add a human approval gate | `type: hitl_gate` with `config.message` | No |
+| Add a data transformation | `type: builtin` + register a new function | Small Python function |
+| Change derivation agents | Update `config` block on `derive_variables` step | No |
+
+### When you DO need new code: adding a builtin
+
+Builtins are non-LLM Python functions (data loading, DAG construction, file export). To add one:
+
+**1. Write the async function** in `src/engine/step_builtins.py`:
+
+```python
+async def _builtin_validate_data(step: StepDefinition, ctx: PipelineContext) -> None:
+    """Check data quality before derivation — example builtin."""
+    if ctx.derived_df is None:
+        msg = f"Step '{step.id}' requires derived_df in context"
+        raise ValueError(msg)
+    null_pct = ctx.derived_df.isna().mean().mean()
+    threshold = float(step.config.get("max_null_pct", 0.5))
+    if null_pct > threshold:
+        msg = f"Data quality check failed: {null_pct:.1%} nulls exceeds {threshold:.0%} threshold"
+        raise ValueError(msg)
+```
+
+**Rules:**
+- Signature must be `async def(step: StepDefinition, ctx: PipelineContext) -> None`
+- Read inputs from `ctx` (spec, derived_df, dag, etc.)
+- Write outputs back to `ctx` (mutate in place)
+- Read step-specific config from `step.config`
+- Raise `ValueError` with descriptive message on failure
+
+**2. Register in `BUILTIN_REGISTRY`:**
+
+```python
+BUILTIN_REGISTRY: dict[str, Any] = {
+    "parse_spec": _builtin_parse_spec,
+    "build_dag": _builtin_build_dag,
+    "export_adam": _builtin_export_adam,
+    "validate_data": _builtin_validate_data,  # new
+}
+```
+
+**3. Use in a pipeline:**
+
+```yaml
+steps:
+  - id: parse_spec
+    type: builtin
+    builtin: parse_spec
+
+  - id: data_quality_gate
+    type: builtin
+    builtin: validate_data
+    depends_on: [parse_spec]
+    config:
+      max_null_pct: 0.3    # fail if >30% nulls
+
+  - id: build_dag
+    type: builtin
+    builtin: build_dag
+    depends_on: [data_quality_gate]
+```
+
+### The `parallel_map` special case
+
+The `parallel_map` step type is the only one with a dedicated Python runner (`src/engine/derivation_runner.py`). It exists because per-variable derivation is a complex multi-step process:
+
+```
+For each DAG layer (sequential):
+  For each variable in layer (parallel):
+    1. Load coder + QC agents from config
+    2. Run both in parallel (asyncio.gather)
+    3. Verify outputs match (comparator)
+    4. If mismatch: run debugger agent
+    5. Apply approved code to DataFrame
+```
+
+This logic is too complex for a single builtin function and too domain-specific for a generic executor. The `parallel_map` executor delegates to `run_variable()` which handles the full coder/QC/verify/debug cycle.
+
+Agent names are declared in the pipeline YAML (`config.coder_agent`, `config.qc_agent`, `config.debugger_agent`) and passed to `run_variable()` at runtime. Omitting `qc_agent` enables coder-only mode (express pipeline).
+
+### Architecture summary
+
+```
+Pipeline YAML          Step Executors              Python Code
+─────────────          ──────────────              ───────────
+type: agent       →    AgentStepExecutor      →    load_agent(yaml) + AGENT_DEPS_BUILDERS
+type: builtin     →    BuiltinStepExecutor    →    BUILTIN_REGISTRY[name](step, ctx)
+type: gather      →    GatherStepExecutor     →    load_agent(yaml) x N + asyncio.gather
+type: hitl_gate   →    HITLGateStepExecutor   →    asyncio.Event (generic, no custom code)
+type: parallel_map →   ParallelMapStepExecutor →   derivation_runner.run_variable()
+```
+
+Adding new step types (e.g., `type: conditional`, `type: retry_loop`) requires:
+1. Add a member to `StepType` enum in `src/domain/pipeline_models.py`
+2. Create a new `StepExecutor` subclass in `src/engine/step_executors.py`
+3. Register it in `STEP_EXECUTOR_REGISTRY`
