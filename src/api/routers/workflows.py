@@ -20,6 +20,7 @@ from src.api.schemas import (
     WorkflowStatusResponse,
 )
 from src.config.settings import get_settings
+from src.domain.models import AgentName, AuditAction
 from src.persistence.database import init_db
 from src.persistence.workflow_state_repo import WorkflowStateRepository
 
@@ -59,12 +60,21 @@ async def list_workflows(manager: WorkflowManagerDep) -> list[WorkflowStatusResp
 @router.post("/{workflow_id}/approve", response_model=WorkflowStatusResponse, status_code=200)
 async def approve_workflow(workflow_id: str, manager: WorkflowManagerDep) -> WorkflowStatusResponse:
     """Approve a workflow at the HITL review gate — releases it to proceed to audit."""
-    orch = manager.get_orchestrator(workflow_id)
-    if orch is None:
+    ctx = manager.get_context(workflow_id)
+    if ctx is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
-    if not orch.awaiting_approval:
+
+    event = manager.get_approval_event(workflow_id)
+    if event is None:
         raise HTTPException(status_code=409, detail="Workflow is not awaiting approval")
-    orch.approve()
+
+    ctx.audit_trail.record(
+        variable="",
+        action=AuditAction.HUMAN_APPROVED,
+        agent=AgentName.HUMAN,
+        details={"gate": "human_review"},
+    )
+    event.set()
     return _build_status_response(workflow_id, manager)
 
 
@@ -143,8 +153,8 @@ async def get_workflow_audit(
     manager: WorkflowManagerDep,
 ) -> list[AuditRecordOut]:
     """Return the full audit trail — from memory or from persisted JSON file."""
-    orch = manager.get_orchestrator(workflow_id)
-    if orch is not None:
+    ctx = manager.get_context(workflow_id)
+    if ctx is not None:
         return [
             AuditRecordOut(
                 timestamp=rec.timestamp,
@@ -154,7 +164,7 @@ async def get_workflow_audit(
                 agent=rec.agent,
                 details=rec.details,
             )
-            for rec in orch.audit_trail.records
+            for rec in ctx.audit_trail.records
         ]
 
     # Fallback: load from persisted audit JSON file
@@ -174,9 +184,9 @@ async def get_workflow_dag(
     manager: WorkflowManagerDep,
 ) -> list[DAGNodeOut]:
     """Return all DAG nodes — from memory or from persisted DB state."""
-    orch = manager.get_orchestrator(workflow_id)
-    if orch is not None:
-        dag = orch.state.dag
+    ctx = manager.get_context(workflow_id)
+    if ctx is not None:
+        dag = ctx.dag
         if dag is None:
             return []
         return [_dag_node_out(dag, var) for var in dag.execution_order]
@@ -220,21 +230,20 @@ def _dag_node_out(dag: DerivationDAG, var: str) -> DAGNodeOut:
 
 
 def _build_status_response(workflow_id: str, manager: WorkflowManagerDep) -> WorkflowStatusResponse:
-    """Build a WorkflowStatusResponse from orchestrator, result, or DB history."""
-    orch = manager.get_orchestrator(workflow_id)
-    if orch is not None:
-        status = str(orch.fsm.current_state_value or "unknown")
-        state = orch.state
+    """Build a WorkflowStatusResponse from context+FSM or DB history."""
+    ctx = manager.get_context(workflow_id)
+    fsm = manager.get_fsm(workflow_id)
+    if ctx is not None and fsm is not None:
+        status = fsm.current_state_value
         result = manager.get_result(workflow_id)
+        awaiting = manager.get_approval_event(workflow_id) is not None
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
             status=status,
-            study=state.spec.metadata.study if state.spec else None,
-            awaiting_approval=orch.awaiting_approval,
-            started_at=state.started_at,
-            completed_at=state.completed_at,
-            derived_variables=result.derived_variables if result else list(state.dag.nodes.keys()) if state.dag else [],
-            errors=result.errors if result else state.errors,
+            study=ctx.spec.metadata.study if ctx.spec else None,
+            awaiting_approval=awaiting,
+            derived_variables=result.derived_variables if result else list(ctx.dag.nodes.keys()) if ctx.dag else [],
+            errors=result.errors if result else ctx.errors,
         )
 
     # Fallback to DB history (survives restarts)

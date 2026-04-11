@@ -1,6 +1,6 @@
 # Gap Analysis — Assignment Requirements vs Current State
 
-Last updated: 2026-04-10 (after Phases 10–12: hardening, UI/API split, YAML agents)
+Last updated: 2026-04-11 (after Phases 10–14: hardening, UI/API split, YAML agents, data output, YAML pipeline)
 
 Legend: ✅ Done | ⬆️ Improved since last review | 🔶 Designed only (documented but not coded) | ❌ Gap
 
@@ -11,7 +11,7 @@ Legend: ✅ Done | ⬆️ Improved since last review | 🔶 Designed only (docum
 | # | Requirement | Status | Where / Notes |
 |---|------------|--------|---------------|
 | **5A** | **Multi-Agent Workflow Design** | | |
-| 5A.1 | Clearly defined components (agents or modules) | ⬆️ | 5 PydanticAI agents loaded from YAML configs (`config/agents/*.yaml`) via factory + registries |
+| 5A.1 | Clearly defined components (agents or modules) | ⬆️ | 5 PydanticAI agents loaded from YAML configs (`config/agents/*.yaml`) via factory + registries. Orchestration pipeline also YAML-driven (`config/pipelines/*.yaml`) |
 | 5A.2 | Specification Review agent | ✅ | `src/agents/spec_interpreter.py` — SpecInterpretation output |
 | 5A.3 | Transformation / Code Generation agent | ✅ | `src/agents/derivation_coder.py` — DerivationCode output |
 | 5A.4 | Verification / Validation agent (QC) | ✅ | `src/agents/qc_programmer.py` — independent double programming |
@@ -63,7 +63,7 @@ Legend: ✅ Done | ⬆️ Improved since last review | 🔶 Designed only (docum
 | 7.3 | LLMs, rules, or hybrid approaches | ✅ | PydanticAI agents (LLM) + deterministic comparator/executor (rules) = hybrid |
 | 7.4 | System design quality | ✅ | ARCHITECTURE.md, docs/design.md, decisions.md, 19 import-linter contracts |
 | 7.5 | Reasoning | ✅ | REQUIREMENTS.md (9 questions, 7 decisions, 6 assumptions, full glossary) |
-| 7.6 | Working prototype | ⬆️ | Full pipeline: YAML spec → DAG → agents → QC → audit. 173 tests, 89% coverage, MCP-drivable |
+| 7.6 | Working prototype | ⬆️ | Full pipeline: YAML spec → DAG → agents → QC → audit. 243 tests, YAML-driven orchestration, MCP-drivable |
 
 ---
 
@@ -88,7 +88,7 @@ Legend: ✅ Done | ⬆️ Improved since last review | 🔶 Designed only (docum
 | 9.4 | Human-in-the-Loop Design | ⬆️ Implemented | High | React SPA (DAG viz, code review, audit trail) + REST API + legacy Streamlit |
 | 9.5 | Traceability & Auditability | ✅ Implemented | High | 3-layer audit (AgentLens + loguru + AuditTrail), JSON export |
 | 9.6 | Memory & Reusability | ✅ Implemented | High | SQLAlchemy repos (Pattern, Feedback, QCHistory, WorkflowState) |
-| 9.7 | Implementation Quality | ⬆️ Implemented | High | 173 tests, 89% coverage, pyright strict, 18 pre-push hooks, 10 custom checks, domain exceptions, BaseRepository error wrapping, @traced_tool, YAML agent configs |
+| 9.7 | Implementation Quality | ⬆️ Implemented | High | 243 tests, pyright strict, 18 pre-push hooks, 10 custom checks, domain exceptions, BaseRepository error wrapping, @traced_tool, YAML agent + pipeline configs |
 | 9.8 | Communication & Reasoning | ✅ Complete | High | REQUIREMENTS.md, design doc, 18-slide presentation, decisions.md |
 
 ---
@@ -100,7 +100,7 @@ Legend: ✅ Done | ⬆️ Improved since last review | 🔶 Designed only (docum
 | 10A | Deployment architecture | ⬆️ | 3-container Docker Compose (nginx + backend + frontend), sticky sessions, K8s path in design doc |
 | 10B | Data security | ✅ | Dual-dataset architecture implemented: agents see schema+synthetic only |
 | 10C | Model integration | ⬆️ | LLM gateway (cached, pydantic-settings), model-agnostic, FastMCP for agent-to-agent communication |
-| 10D | Workflow orchestration | ⬆️ | WorkflowFSM + proper domain exceptions + rollback on failure + BaseRepository error wrapping |
+| 10D | Workflow orchestration | ⬆️ | YAML-driven PipelineInterpreter + PipelineFSM (auto-generated states) + 3 pipeline configs (standard/express/enterprise) + domain exceptions + rollback on failure |
 | 10E | Audit & traceability | ✅ | Append-only AuditTrail, JSON export, AgentName/AuditAction enums |
 | 10F | Scalability | ✅ | asyncio.gather for fan-out, stateless orchestrator, Docker-ready |
 | 10G | CI/CD | ✅ | GitHub Actions CI + 18 pre-push hooks + 10 custom arch checks |
@@ -112,7 +112,7 @@ Legend: ✅ Done | ⬆️ Improved since last review | 🔶 Designed only (docum
 
 | # | Requirement | Status | Where / Notes |
 |---|------------|--------|---------------|
-| 11A | Platform thinking | ⬆️ | Engine is spec-agnostic + YAML agent configs enable per-study prompt customization without code changes |
+| 11A | Platform thinking | ⬆️ | Engine is spec-agnostic + YAML agent configs + YAML pipeline configs (3 scenarios: standard, express, enterprise) enable per-study customization without code changes |
 | 11B | Trade-offs | ✅ | docs/design.md §Trade-offs: automation vs control, LLM vs rules, data security |
 | 11C | Reliability | ✅ | docs/design.md §Trade-offs: failure modes, retry with escalation, FSM error handling |
 | 11D | Scaling use cases | ✅ | docs/design.md §Production Path: multi-study, Docker→K8s, SQLite→PostgreSQL |
@@ -124,50 +124,38 @@ Legend: ✅ Done | ⬆️ Improved since last review | 🔶 Designed only (docum
 
 | Category | ✅ Done | ⬆️ Improved | 🔶 Designed | ❌ Gap | Total |
 |----------|--------|------------|------------|-------|-------|
-| Core Requirements (§5) | 17 | 5 | 0 | 1 | 23 |
+| Core Requirements (§5) | 18 | 5 | 0 | 0 | 23 |
 | Input Scope (§6) | 2 | 0 | 0 | 0 | 2 |
 | Technical (§7) | 4 | 2 | 0 | 0 | 6 |
 | Deliverables (§8) | 3 | 1 | 0 | 0 | 4 |
 | Evaluation Criteria (§9) | 6 | 2 | 0 | 0 | 8 |
 | Production Design (§10) | 4 | 4 | 0 | 0 | 8 |
 | Lead Expectations (§11) | 4 | 1 | 0 | 0 | 5 |
-| **Total** | **40** | **15** | **0** | **1** | **56** |
+| **Total** | **41** | **15** | **0** | **0** | **56** |
 
-**55/56 requirements addressed.** 15 significantly improved in Phases 10–12.
+**56/56 requirements addressed.** Zero gaps remaining. Phases 13-14 resolved F07 (ADaM output) and F02/F03 (YAML pipeline).
 
 ---
 
 ## Remaining Gaps
 
-### ❌ GAP: ADaM Data Output (F07)
+### ✅ RESOLVED: ADaM Data Output (F07) — Phase 13
 
-**Impact: High** — The tool's core purpose is producing ADaM datasets, but the derived DataFrame is not persisted or exposed.
+Implemented in Phase 13: CSV + Parquet export, `GET /data` preview endpoint, `GET /adam?format=csv|parquet` download, Data tab with collapsible schema grid, dtype badges, row numbers, sticky headers.
 
-**What's missing:**
-1. `derived_df` (the final ADaM) is not saved to disk after workflow completion — only DAG metadata and audit trail are persisted
-2. No API endpoint to download or preview the derived data
-3. No frontend tab showing source SDTM → derived ADaM comparison
-4. No data export (CSV, Parquet, XPT) for downstream TFL generation
+### ✅ RESOLVED: YAML-Driven Pipeline (F02/F03) — Phase 14
 
-**What works today:**
-- The derivation pipeline produces correct `derived_df` in memory
-- Each variable's code is persisted and can be re-executed
-- The audit trail proves what was derived and how
+Implemented in Phase 14: PipelineInterpreter reads `config/pipelines/*.yaml`, 5 step executors, PipelineFSM auto-generated from step IDs, 3 pipeline configs (standard/express/enterprise), wired into WorkflowManager + API. Old orchestrator kept as reference.
 
-**Fix path (Phase 13):**
-- Save `derived_df` as Parquet to `output/{workflow_id}_adam.parquet` after workflow completion
-- Add `GET /api/v1/workflows/{id}/data` endpoint — returns schema + summary stats (privacy-safe)
-- Add `GET /api/v1/workflows/{id}/data/download` — returns CSV/Parquet file
-- Add Data tab in React frontend — column list, dtypes, row count, sample values for non-PII columns
-- Compare derived vs ground truth (if `validation.ground_truth` exists in spec)
+### ✅ RESOLVED: HITL Approval (POST /approve)
+
+Wired in Phase 14: HITLGateStepExecutor creates asyncio.Event, API finds pending event via `manager.get_approval_event()`, `POST /approve` sets the event and records AuditAction.HUMAN_APPROVED.
 
 ### 🟡 Nice-to-haves (not required by assignment)
 
 | Item | Status | Notes |
 |------|--------|-------|
-| HITL approval endpoint (POST /approve) | 🔶 | API planned but not wired to FSM gates |
 | WebSocket live status updates | 🔶 | Currently polling every 2s via React Query |
-| YAML-driven pipeline steps | 🔶 | F02 in REFACTORING.md — hardcoded `run()` steps |
 | AST-based exec sandbox | 🔶 | F05 — current token blocklist is naive |
 | Authentication on API | 🔶 | No auth — acceptable for homework demo |
 | Ground truth comparison in UI | 🔶 | Spec supports it, engine doesn't expose results |

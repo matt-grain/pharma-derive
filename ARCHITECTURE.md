@@ -131,6 +131,42 @@ Each agent is a `PydanticAI Agent[DepsType, OutputType]` — typed, validated, w
 
 All agents share the same LLM gateway (`OpenAIChatModel` pointing to AgentLens proxy). The orchestrator dispatches them as independent async tasks.
 
+## YAML-Driven Pipeline Engine
+
+The orchestration sequence is **not hardcoded** — it's defined in YAML pipeline configs (`config/pipelines/*.yaml`) and executed by a `PipelineInterpreter`. This enables per-study customization without code changes.
+
+### Composition Primitives
+
+| StepType | What It Does | Example |
+|----------|-------------|---------|
+| `agent` | Run a single PydanticAI agent | `auditor` |
+| `builtin` | Run a non-LLM Python function | `build_dag`, `export_adam` |
+| `gather` | Run N agents in parallel | `coder + qc_programmer` |
+| `parallel_map` | Map sub-steps over DAG layers | Variable derivation |
+| `hitl_gate` | Pause for human approval | Review gate |
+
+### Pipeline Configs
+
+| Config | Steps | HITL Gates | Use Case |
+|--------|-------|-----------|----------|
+| `clinical_derivation.yaml` | 6 | 1 | Standard flow (default) |
+| `express.yaml` | 4 | 0 | Rapid prototyping |
+| `enterprise.yaml` | 8 | 3 | 21 CFR Part 11 compliance |
+
+### Pipeline Interpreter
+
+```
+PipelineInterpreter.run()
+  │
+  ├── topological_sort(steps)        ← Kahn's algorithm, cycle detection
+  │
+  └── for step in sorted_steps:
+        ├── STEP_EXECUTOR_REGISTRY[step.type].execute(step, ctx)
+        └── PipelineFSM.advance(step.id)
+```
+
+The `PipelineFSM` auto-generates states from step IDs — no manual FSM maintenance. See `docs/COMPOSITION_LAYER.md` for the full justification of building this thin layer on top of PydanticAI.
+
 ## Data Security Architecture — Dual-Dataset Pattern
 
 ### The Problem

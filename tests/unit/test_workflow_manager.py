@@ -59,8 +59,8 @@ async def test_is_running_unknown_id_returns_false() -> None:
     assert manager.is_running("nonexistent") is False
 
 
-async def test_start_workflow_registers_orchestrator(sample_spec_path: str) -> None:
-    """Starting a workflow creates an orchestrator accessible by ID."""
+async def test_start_workflow_registers_interpreter(sample_spec_path: str) -> None:
+    """Starting a workflow creates an interpreter and context accessible by ID."""
     # Arrange
     manager = WorkflowManager()
 
@@ -68,7 +68,9 @@ async def test_start_workflow_registers_orchestrator(sample_spec_path: str) -> N
     wf_id = await manager.start_workflow(sample_spec_path)
 
     # Assert
-    assert manager.get_orchestrator(wf_id) is not None
+    assert manager.get_interpreter(wf_id) is not None
+    assert manager.get_context(wf_id) is not None
+    assert manager.get_fsm(wf_id) is not None
     assert manager.is_running(wf_id)
     assert wf_id in manager.list_workflow_ids()
 

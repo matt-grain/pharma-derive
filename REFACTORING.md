@@ -36,8 +36,8 @@ These are larger architectural changes identified during review, tracked but def
 | # | Category | Finding | Notes |
 |---|----------|---------|-------|
 | F01 | **UI/API Split** | ✅ Done (Phase 11). FastAPI + FastMCP + React SPA + Docker Compose. | Service-separated architecture |
-| F02 | **YAML-Driven Pipeline** | Orchestrator steps are hardcoded in `run()`. Steps could be configurable via YAML + Step protocol for extensibility. | Good for platform thinking story |
-| F03 | **YAML-Driven FSM** | FSM states/transitions could be generated from YAML config, shared with pipeline config. | Coupled with F02 |
+| F02 | **YAML-Driven Pipeline** | ✅ Done (Phase 14). PipelineInterpreter reads YAML, 5 step executors, 3 pipeline configs, wired into API. | §11.A Platform Thinking |
+| F03 | **YAML-Driven FSM** | ✅ Done (Phase 14). PipelineFSM auto-generates states from pipeline step IDs. Old WorkflowFSM kept as reference. | Coupled with F02 |
 | F04 | **Mermaid Diagrams** | ✅ Done. `scripts/generate_diagrams.py` — FSM state diagram + 2 sequence diagrams. | Presentation enhancement |
 | F05 | **Exec Sandbox** | Token-based blocklist in `execute_code` is naive (`"import"` blocks `"important"`). AST-based check or subprocess sandbox would be more reliable. | Security hardening |
 | F06 | **YAML Agent Definitions** | ✅ Done (Phase 12). Agent configs in `config/agents/*.yaml`, factory + registries in `src/agents/`. | §11.A Platform Thinking |

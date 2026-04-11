@@ -20,8 +20,9 @@
 | Phase 11: UI/API split | ✅ Complete | 173 | 100% |
 | Phase 12: YAML agent config | ✅ Complete | 173 | 100% |
 | Phase 13: ADaM data output (F07) | ✅ Complete | 189 | 100% |
+| Phase 14: YAML pipeline (F02/F03) | ✅ Complete | 243 | 100% |
 
-**Overall:** 13/13 phases complete (100%) ✅
+**Overall:** 14/14 phases complete (100%) ✅
 
 ---
 
@@ -181,6 +182,56 @@
 
 ---
 
+## Phase 14 — YAML-Driven Orchestration Pipeline (F02/F03)
+
+**Implemented:** 2026-04-11
+**Agents:** `python-fastapi` (14.1, 14.2, 14.3-backend, 14.4), `vite-react` (14.3-frontend)
+**Tooling:** ✅ All pass (243 tests, 20 import contracts)
+
+### Phase 14.1 — Pipeline Models + Step Executors
+- ✅ `StepType` StrEnum (agent, builtin, gather, parallel_map, hitl_gate)
+- ✅ `StepDefinition` + `PipelineDefinition` frozen Pydantic models with YAML parser
+- ✅ `PipelineContext` dataclass for inter-step state passing
+- ✅ 5 typed step executors: Agent, Builtin, Gather, ParallelMap, HITLGate
+- ✅ `STEP_EXECUTOR_REGISTRY` + `BUILTIN_REGISTRY` + `build_agent_deps_and_prompt` dispatcher
+- ✅ 3 new `AuditAction` enum members (STEP_STARTED, STEP_COMPLETED, HITL_GATE_WAITING)
+
+### Phase 14.2 — Pipeline Interpreter + Default YAML
+- ✅ `PipelineInterpreter` — topological sort (Kahn's algorithm) + step dispatch loop
+- ✅ `config/pipelines/clinical_derivation.yaml` — standard 6-step flow (backward-compatible)
+- ✅ `docs/COMPOSITION_LAYER.md` — architecture justification with CrewAI/LangGraph comparison
+- ✅ `parse_spec` builtin mirrors orchestrator._step_spec_review
+
+### Phase 14.3 — API Endpoint + Frontend Diagram
+- ✅ `GET /api/v1/pipeline` endpoint with `PipelineOut` schema
+- ✅ `PipelineView.tsx` — ReactFlow + dagre LR diagram with type-colored nodes
+- ✅ 6th "Pipeline" tab on WorkflowDetailPage
+
+### Phase 14.4 — Scenario Pipelines + Tests
+- ✅ `express.yaml` — 4 steps (no QC, no audit, no HITL gate)
+- ✅ `enterprise.yaml` — 8 steps (3 HITL gates for 21 CFR Part 11)
+- ✅ 28 scenario tests (parameterized cross-cutting) + 4 integration tests
+- ✅ 5 equivalence tests proving pipeline interpreter matches old orchestrator
+
+### Phase 14.5 — API Wiring + FSM Auto-Generation
+- ✅ `PipelineFSM` — lightweight state tracker, states auto-derived from pipeline step IDs
+- ✅ `create_pipeline_orchestrator` factory function
+- ✅ `WorkflowManager` fully switched to PipelineInterpreter (old orchestrator kept as reference)
+- ✅ All API endpoints adapted (status, approve, audit, dag use context+FSM)
+- ✅ HITL approval wired: `get_approval_event()` finds pending asyncio.Event
+
+### Files Created
+- `src/domain/pipeline_models.py`, `src/engine/pipeline_context.py`
+- `src/engine/step_executors.py`, `src/engine/step_builtins.py`
+- `src/engine/pipeline_interpreter.py`, `src/engine/pipeline_fsm.py`
+- `src/api/routers/pipeline.py`
+- `frontend/src/components/PipelineView.tsx`
+- `config/pipelines/clinical_derivation.yaml`, `express.yaml`, `enterprise.yaml`
+- `config/README.md`, `docs/COMPOSITION_LAYER.md`
+- 7 test files (54 new tests)
+
+---
+
 ## All Phases Complete ✅
 
-**Final metrics:** 189 tests | 20 import contracts | 18 pre-push hooks | 10 custom arch checks
+**Final metrics:** 243 tests | 20 import contracts | 18 pre-push hooks | 10 custom arch checks | 0 gaps
