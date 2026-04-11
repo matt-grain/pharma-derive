@@ -110,6 +110,41 @@ Agent configurations externalized to `config/agents/*.yaml`. Factory + registrie
 
 ---
 
+## Phase 14 — YAML-Driven Orchestration Pipeline (F02/F03)
+
+**Date:** 2026-04-11
+**Scope:** Configurable pipeline via YAML, auto-generated FSM, step executors, pipeline UI diagram
+**Sub-phases:** 4
+
+### Motivation
+
+The current orchestrator has a hardcoded step sequence in `run()`. For a platform serving multiple studies, clinical teams need to customize pipelines (skip QC for prototyping, add extra HITL gates for compliance) without touching Python code. PydanticAI handles agent abstractions but leaves orchestration/composition to the developer — this phase builds that composition layer.
+
+### Sub-Phase Summary
+
+| Sub-Phase | Title | New Files | Modified | Agent | Dependencies |
+|-----------|-------|-----------|----------|-------|-------------|
+| 14.1 | Pipeline models + step executors | 4 new + 2 test | 1 modified | `python-fastapi` | None |
+| 14.2 | Pipeline interpreter + FSM auto-gen + default YAML | 3 new + 1 test + 1 doc | 1 modified | `python-fastapi` | 14.1 |
+| 14.3 | API endpoint + frontend PipelineView | 2 new + 5 modified | — | `python-fastapi` + `vite-react` | 14.2 |
+| 14.4 | Scenario pipelines (express, enterprise) + tests | 2 YAML + 2 test | — | `python-fastapi` | 14.2 |
+
+### Cross-Phase Dependencies
+
+- **14.1 → 14.2:** Interpreter uses models + executors from 14.1
+- **14.2 → 14.3:** API endpoint serves the pipeline YAML created in 14.2
+- **14.2 → 14.4:** Scenario YAMLs use the same schema; tests use the interpreter from 14.2
+- **14.3 and 14.4 are independent** — can run in parallel
+
+### Per-Phase Plan Files
+
+- `IMPLEMENTATION_PLAN_PHASE_14_1.md` — Pipeline domain models + step executors + tests
+- `IMPLEMENTATION_PLAN_PHASE_14_2.md` — Pipeline interpreter + topological sort + default YAML + COMPOSITION_LAYER.md
+- `IMPLEMENTATION_PLAN_PHASE_14_3.md` — API endpoint + frontend ReactFlow pipeline diagram
+- `IMPLEMENTATION_PLAN_PHASE_14_4.md` — Express + enterprise YAML configs + scenario tests + integration tests
+
+---
+
 ## Final Metrics
 
 - **153 tests** | **89% coverage** | **19 import contracts** | **18 pre-push hooks**

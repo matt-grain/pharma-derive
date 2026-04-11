@@ -72,6 +72,14 @@ export function useWorkflowData(id: string, enabled: boolean) {
   })
 }
 
+export function usePipeline() {
+  return useQuery({
+    queryKey: ['pipeline'],
+    queryFn: api.getPipeline,
+    staleTime: 300_000, // Pipeline config rarely changes — cache 5 min
+  })
+}
+
 export function useStartWorkflow() {
   const queryClient = useQueryClient()
   return useMutation({

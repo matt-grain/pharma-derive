@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, AlertCircle, CheckCircle2, Clock, BarChart3, GitBranch, Code2, Shield, Database } from 'lucide-react'
+import { ArrowLeft, AlertCircle, CheckCircle2, Clock, BarChart3, GitBranch, Code2, Shield, Database, Workflow } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -9,7 +9,8 @@ import { DAGView } from '@/components/DAGView'
 import { CodePanel } from '@/components/CodePanel'
 import { AuditTable } from '@/components/AuditTable'
 import { DataTab } from '@/components/DataTab'
-import { useWorkflowStatus, useWorkflowDag, useWorkflowAudit, useWorkflowResult, useWorkflowData, useApproveWorkflow } from '@/hooks/useWorkflows'
+import { PipelineView } from '@/components/PipelineView'
+import { useWorkflowStatus, useWorkflowDag, useWorkflowAudit, useWorkflowResult, useWorkflowData, useApproveWorkflow, usePipeline } from '@/hooks/useWorkflows'
 import { TERMINAL_STATUSES } from '@/lib/status'
 
 export function WorkflowDetailPage() {
@@ -24,6 +25,7 @@ export function WorkflowDetailPage() {
   const { data: result } = useWorkflowResult(workflowId, isTerminal)
   const { data: dataPreview, isLoading: isDataLoading } = useWorkflowData(workflowId, isTerminal)
   const { mutate: approve, isPending: isApproving } = useApproveWorkflow(workflowId)
+  const { data: pipeline } = usePipeline()
 
   if (isLoading) {
     return (
@@ -150,6 +152,10 @@ export function WorkflowDetailPage() {
             <Database size={15} />
             Data
           </TabsTrigger>
+          <TabsTrigger value="pipeline" className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-500 transition-all data-[selected]:bg-white data-[selected]:text-slate-900 data-[selected]:shadow-sm">
+            <Workflow size={15} />
+            Pipeline
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="status">
@@ -188,6 +194,16 @@ export function WorkflowDetailPage() {
             data={dataPreview}
             isLoading={isDataLoading}
           />
+        </TabsContent>
+
+        <TabsContent value="pipeline">
+          {pipeline ? (
+            <PipelineView steps={pipeline.steps} />
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-200 py-20 text-center text-sm text-slate-400">
+              Pipeline definition not available
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

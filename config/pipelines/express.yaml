@@ -1,0 +1,31 @@
+pipeline:
+  name: express
+  version: "1.0"
+  description: "Rapid prototyping — single coder, no QC, no audit, no human gate"
+
+  steps:
+    - id: parse_spec
+      type: builtin
+      builtin: parse_spec
+      description: "Parse spec and load source data"
+
+    - id: build_dag
+      type: builtin
+      builtin: build_dag
+      depends_on: [parse_spec]
+      description: "Build derivation DAG"
+
+    - id: derive_variables
+      type: parallel_map
+      over: dag_layers
+      depends_on: [build_dag]
+      description: "Derive variables — coder only, no QC double-programming"
+
+    - id: export
+      type: builtin
+      builtin: export_adam
+      depends_on: [derive_variables]
+      config:
+        formats:
+          - csv
+      description: "Export as CSV only"

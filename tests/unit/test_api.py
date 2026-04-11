@@ -256,3 +256,19 @@ async def test_download_adam_missing_parquet_returns_404(
     assert response.status_code == 404
     detail: str = response.json()["detail"]
     assert "not found" in detail.lower()
+
+
+async def test_get_pipeline_returns_definition(client: AsyncClient) -> None:
+    """GET /pipeline returns the default pipeline definition."""
+    # Act
+    response = await client.get("/api/v1/pipeline")
+
+    # Assert
+    assert response.status_code == 200
+    body: dict[str, object] = response.json()
+    assert body["name"] == "clinical_derivation"
+    steps: list[dict[str, object]] = body["steps"]  # type: ignore[assignment]
+    assert len(steps) >= 5
+    step_ids = [s["id"] for s in steps]
+    assert "parse_spec" in step_ids
+    assert "human_review" in step_ids

@@ -93,6 +93,29 @@ class DataPreviewResponse(BaseModel, frozen=True):
     derived_formats: list[str] = []
 
 
+class PipelineStepOut(BaseModel, frozen=True):
+    """A single step in the pipeline definition."""
+
+    id: str
+    type: str
+    description: str
+    agent: str | None = None
+    agents: list[str] | None = None
+    builtin: str | None = None
+    depends_on: list[str] = []
+    config: dict[str, str | int | float | bool | list[str]] = {}
+    has_sub_steps: bool = False
+
+
+class PipelineOut(BaseModel, frozen=True):
+    """Pipeline definition for the frontend diagram."""
+
+    name: str
+    version: str
+    description: str
+    steps: list[PipelineStepOut]
+
+
 class HealthResponse(BaseModel, frozen=True):
     status: str
     version: str

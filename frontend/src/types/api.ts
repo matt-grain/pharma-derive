@@ -80,3 +80,22 @@ export interface DataPreviewResponse {
   derived: DatasetPreview | null
   derived_formats: string[]
 }
+
+export interface PipelineStep {
+  id: string
+  type: string
+  description: string
+  agent: string | null
+  agents: string[] | null
+  builtin: string | null
+  depends_on: string[]
+  config: Record<string, string | number | boolean | string[]>
+  has_sub_steps: boolean
+}
+
+export interface Pipeline {
+  name: string
+  version: string
+  description: string
+  steps: PipelineStep[]
+}

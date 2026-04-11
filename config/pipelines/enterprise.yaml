@@ -1,0 +1,59 @@
+pipeline:
+  name: enterprise
+  version: "1.0"
+  description: "Enterprise pipeline — spec approval, derivation QC, variable review, final sign-off"
+
+  steps:
+    - id: parse_spec
+      type: builtin
+      builtin: parse_spec
+      description: "Parse transformation spec and load source data"
+
+    - id: spec_approval
+      type: hitl_gate
+      depends_on: [parse_spec]
+      config:
+        message: "Review spec interpretation — verify source columns and derivation rules"
+      description: "HITL gate: approve spec before building DAG"
+
+    - id: build_dag
+      type: builtin
+      builtin: build_dag
+      depends_on: [spec_approval]
+      description: "Build derivation dependency graph"
+
+    - id: derive_variables
+      type: parallel_map
+      over: dag_layers
+      depends_on: [build_dag]
+      description: "Derive with coder+QC double programming, verify, debug if mismatch"
+
+    - id: variable_review
+      type: hitl_gate
+      depends_on: [derive_variables]
+      config:
+        message: "Review each derived variable — inspect code, QC results, and debugger fixes"
+      description: "HITL gate: approve variables before audit"
+
+    - id: audit
+      type: agent
+      agent: auditor
+      depends_on: [variable_review]
+      description: "Generate regulatory audit summary"
+
+    - id: final_signoff
+      type: hitl_gate
+      depends_on: [audit]
+      config:
+        message: "Final sign-off — confirm audit results and approve export"
+      description: "HITL gate: final approval before data export"
+
+    - id: export
+      type: builtin
+      builtin: export_adam
+      depends_on: [final_signoff]
+      config:
+        formats:
+          - csv
+          - parquet
+      description: "Export derived ADaM dataset in all formats"

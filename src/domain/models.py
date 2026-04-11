@@ -151,6 +151,9 @@ class AuditAction(StrEnum):
     AUDIT_COMPLETE = "audit_complete"
     STATE_TRANSITION = "state_transition"
     HUMAN_APPROVED = "human_approved"
+    STEP_STARTED = "step_started"
+    STEP_COMPLETED = "step_completed"
+    HITL_GATE_WAITING = "hitl_gate_waiting"
 
 
 class AgentName(StrEnum):

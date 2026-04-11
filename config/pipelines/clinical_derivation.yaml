@@ -1,0 +1,45 @@
+pipeline:
+  name: clinical_derivation
+  version: "1.0"
+  description: "Standard SDTM → ADaM derivation with double-programming QC and human review"
+
+  steps:
+    - id: parse_spec
+      type: builtin
+      builtin: parse_spec
+      description: "Parse transformation spec, load source data, generate synthetic CSV"
+
+    - id: build_dag
+      type: builtin
+      builtin: build_dag
+      depends_on: [parse_spec]
+      description: "Build derivation dependency graph from spec rules"
+
+    - id: derive_variables
+      type: parallel_map
+      over: dag_layers
+      depends_on: [build_dag]
+      description: "Derive each variable with coder+QC double programming, verify, debug if mismatch"
+
+    - id: human_review
+      type: hitl_gate
+      depends_on: [derive_variables]
+      config:
+        message: "Review all derivations — inspect DAG, code, and QC results before audit"
+      description: "Human-in-the-loop approval gate"
+
+    - id: audit
+      type: agent
+      agent: auditor
+      depends_on: [human_review]
+      description: "Generate regulatory audit summary"
+
+    - id: export
+      type: builtin
+      builtin: export_adam
+      depends_on: [audit]
+      config:
+        formats:
+          - csv
+          - parquet
+      description: "Export derived ADaM dataset"

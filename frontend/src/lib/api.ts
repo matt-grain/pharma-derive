@@ -3,6 +3,7 @@ import type {
   DAGNode,
   DataPreviewResponse,
   HealthResponse,
+  Pipeline,
   SpecItem,
   StartWorkflowResponse,
   WorkflowResult,
@@ -68,6 +69,9 @@ export const api = {
     a.click()
     URL.revokeObjectURL(url)
   },
+
+  getPipeline: (): Promise<Pipeline> =>
+    fetchJson<Pipeline>(`${BASE}/pipeline`),
 
   approveWorkflow: (id: string): Promise<WorkflowStatus> =>
     fetchJson<WorkflowStatus>(`${BASE}/workflows/${id}/approve`, { method: 'POST' }),
