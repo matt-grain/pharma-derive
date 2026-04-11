@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
 
 from src.api.dependencies import (
     WorkflowManagerDep,  # noqa: TC001 — FastAPI resolves Annotated[Depends] at runtime via get_type_hints()
@@ -81,7 +80,7 @@ async def delete_workflow(workflow_id: str, manager: WorkflowManagerDep) -> None
         await session.commit()
     # Clean up output files
     output_dir = Path(get_settings().output_dir)
-    for suffix in ("_audit.json", "_adam.csv"):
+    for suffix in ("_audit.json", "_adam.csv", "_adam.parquet"):
         path = output_dir / f"{workflow_id}{suffix}"
         if path.exists():
             path.unlink()
@@ -167,15 +166,6 @@ async def get_workflow_audit(
     if not manager.is_known(workflow_id):
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
     return []
-
-
-@router.get("/{workflow_id}/adam", response_class=FileResponse, status_code=200)
-async def download_adam(workflow_id: str) -> FileResponse:
-    """Download the derived ADaM CSV file."""
-    adam_path = Path(get_settings().output_dir) / f"{workflow_id}_adam.csv"
-    if not adam_path.exists():
-        raise HTTPException(status_code=404, detail=f"ADaM file not found for workflow {workflow_id!r}")
-    return FileResponse(adam_path, media_type="text/csv", filename=f"{workflow_id}_adam.csv")
 
 
 @router.get("/{workflow_id}/dag", response_model=list[DAGNodeOut], status_code=200)

@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.dependencies import set_app_ref
 from src.api.mcp_server import mcp as mcp_server
+from src.api.routers.data import router as data_router
 from src.api.routers.health import router as health_router
 from src.api.routers.specs import router as specs_router
 from src.api.routers.workflows import router as workflows_router
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health_router)
     app.include_router(workflows_router)
+    app.include_router(data_router)
     app.include_router(specs_router)
     app.mount("/mcp", _mcp_app)
     return app

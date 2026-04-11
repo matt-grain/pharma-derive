@@ -84,6 +84,32 @@ A monolithic Streamlit app cannot be independently scaled, tested, or deployed. 
 
 The orchestrator holds in-memory state (DataFrame + DAG) during a run. With multiple backend containers, nginx `ip_hash` ensures all requests for a workflow route to the same container. A container crash fails the workflow gracefully (FSM → `failed`). The user re-runs. Stateless backend (serialize DataFrame to blob storage between steps) is the production evolution — documented but not implemented in homework scope.
 
+## Phase 12 — YAML Agent Config ✅
+
+Agent configurations externalized to `config/agents/*.yaml`. Factory + registries in `src/agents/`.
+
+## Phase 13 — ADaM Data Output (F07)
+
+**Date:** 2026-04-11
+**Scope:** Data preview API, Parquet export, frontend Data tab
+**Sub-phases:** 2
+
+| Sub-Phase | Title | Files | Agent | Dependencies |
+|-----------|-------|-------|-------|-------------|
+| 13.1 | Data Preview API + Parquet Export | 4 modified | `python-fastapi` | None |
+| 13.2 | Frontend Data Tab | 1 new + 4 modified | `vite-react` | 13.1 |
+
+### Cross-Phase Dependencies
+
+- **13.1 → 13.2:** Frontend Data tab calls the `GET /workflows/{id}/data` endpoint created in 13.1
+
+### Per-Phase Plan Files
+
+- `IMPLEMENTATION_PLAN_PHASE_13_1.md` — Backend: schemas, data preview endpoint, Parquet export, tests
+- `IMPLEMENTATION_PLAN_PHASE_13_2.md` — Frontend: types, API client, hook, DataTab component, page integration
+
+---
+
 ## Final Metrics
 
 - **153 tests** | **89% coverage** | **19 import contracts** | **18 pre-push hooks**

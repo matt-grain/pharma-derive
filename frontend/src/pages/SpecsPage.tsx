@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Play, FileCode, ChevronDown, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -83,9 +83,8 @@ export function SpecsPage() {
             </TableHeader>
             <TableBody>
               {specs.map((spec) => (
-                <>
+                <Fragment key={spec.filename}>
                   <TableRow
-                    key={spec.filename}
                     className="cursor-pointer hover:bg-slate-50"
                     onClick={() => void toggleExpand(spec.filename)}
                   >
@@ -116,7 +115,7 @@ export function SpecsPage() {
                     </TableCell>
                   </TableRow>
                   {expanded === spec.filename && (
-                    <TableRow key={`${spec.filename}-yaml`}>
+                    <TableRow>
                       <TableCell colSpan={5} className="p-0">
                         <pre
                           className="overflow-y-auto whitespace-pre-wrap break-words bg-slate-950 p-4 text-xs leading-relaxed text-emerald-300"
@@ -127,7 +126,7 @@ export function SpecsPage() {
                       </TableCell>
                     </TableRow>
                   )}
-                </>
+                </Fragment>
               ))}
             </TableBody>
           </Table>

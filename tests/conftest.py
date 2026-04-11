@@ -2,21 +2,31 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
+
+from src.config.settings import get_settings
+from src.domain.models import (
+    DerivationRule,
+    OutputDType,
+    TransformationSpec,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from src.domain.dag import DerivationDAG
 
-from src.domain.models import (
-    DerivationRule,
-    OutputDType,
-    TransformationSpec,
-)
+
+@pytest.fixture(autouse=True, scope="session")
+def _use_test_database() -> None:  # pyright: ignore[reportUnusedFunction]
+    """Force all tests to use an in-memory SQLite database instead of the real cdde.db."""
+    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+    get_settings.cache_clear()
+
 
 _PATIENTS_CSV = """\
 patient_id,age,treatment_start,treatment_end,group

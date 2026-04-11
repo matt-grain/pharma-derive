@@ -65,6 +65,34 @@ class DAGNodeOut(BaseModel, frozen=True):
     dependencies: list[str] = []
 
 
+class ColumnInfo(BaseModel, frozen=True):
+    """Column metadata for data preview."""
+
+    name: str
+    dtype: str
+    null_count: int
+    sample_values: list[str | int | float | None]
+
+
+class DatasetPreview(BaseModel, frozen=True):
+    """Preview of a single dataset (source or derived)."""
+
+    label: str
+    row_count: int
+    column_count: int
+    columns: list[ColumnInfo]
+    rows: list[dict[str, str | int | float | None]]
+
+
+class DataPreviewResponse(BaseModel, frozen=True):
+    """Response for the data preview endpoint — source + derived side-by-side."""
+
+    workflow_id: str
+    source: DatasetPreview | None = None
+    derived: DatasetPreview | None = None
+    derived_formats: list[str] = []
+
+
 class HealthResponse(BaseModel, frozen=True):
     status: str
     version: str

@@ -1,6 +1,7 @@
 import type {
   AuditRecord,
   DAGNode,
+  DataPreviewResponse,
   HealthResponse,
   SpecItem,
   StartWorkflowResponse,
@@ -52,6 +53,21 @@ export const api = {
 
   getWorkflowDag: (id: string): Promise<DAGNode[]> =>
     fetchJson<DAGNode[]>(`${BASE}/workflows/${id}/dag`),
+
+  getWorkflowData: (id: string, limit = 50): Promise<DataPreviewResponse> =>
+    fetchJson<DataPreviewResponse>(`${BASE}/workflows/${id}/data?limit=${limit}`),
+
+  downloadAdam: async (id: string, format: 'csv' | 'parquet' = 'csv'): Promise<void> => {
+    const res = await fetch(`${BASE}/workflows/${id}/adam?format=${format}`)
+    if (!res.ok) throw new Error(`API error ${res.status}: ${res.statusText}`)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${id}_adam.${format}`
+    a.click()
+    URL.revokeObjectURL(url)
+  },
 
   approveWorkflow: (id: string): Promise<WorkflowStatus> =>
     fetchJson<WorkflowStatus>(`${BASE}/workflows/${id}/approve`, { method: 'POST' }),

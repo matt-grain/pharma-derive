@@ -63,6 +63,15 @@ export function useWorkflowDag(id: string) {
   })
 }
 
+export function useWorkflowData(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['workflow', id, 'data'],
+    queryFn: () => api.getWorkflowData(id),
+    enabled,
+    staleTime: 60_000, // Data preview is static once workflow completes — cache 1 min
+  })
+}
+
 export function useStartWorkflow() {
   const queryClient = useQueryClient()
   return useMutation({

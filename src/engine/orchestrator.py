@@ -136,17 +136,17 @@ class DerivationOrchestrator:
         return result
 
     def _export_adam(self, output_dir: Path) -> None:
-        """Save the derived DataFrame as CSV for downstream consumption and validation."""
+        """Save the derived DataFrame as CSV and Parquet for downstream consumption."""
         if self._state.derived_df is None:
             return
         output_dir.mkdir(parents=True, exist_ok=True)
-        csv_path = output_dir / f"{self._state.workflow_id}_adam.csv"
-        self._state.derived_df.to_csv(csv_path, index=False)
+        wf_id, df = self._state.workflow_id, self._state.derived_df
+        df.to_csv(output_dir / f"{wf_id}_adam.csv", index=False)
+        df.to_parquet(output_dir / f"{wf_id}_adam.parquet", index=False, engine="pyarrow")
         logger.info(
-            "ADaM output saved to {path} ({rows} rows, {cols} columns)",
-            path=csv_path,
-            rows=len(self._state.derived_df),
-            cols=len(self._state.derived_df.columns),
+            "ADaM output saved ({rows} rows, {cols} columns)",
+            rows=len(df),
+            cols=len(df.columns),
         )
 
     def _rollback_derived_columns(self, source_cols: list[str]) -> None:

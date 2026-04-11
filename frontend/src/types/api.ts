@@ -58,3 +58,25 @@ export interface StartWorkflowResponse {
   status: string
   message: string
 }
+
+export interface ColumnInfo {
+  name: string
+  dtype: string
+  null_count: number
+  sample_values: (string | number | null)[]
+}
+
+export interface DatasetPreview {
+  label: string
+  row_count: number
+  column_count: number
+  columns: ColumnInfo[]
+  rows: Record<string, string | number | null>[]
+}
+
+export interface DataPreviewResponse {
+  workflow_id: string
+  source: DatasetPreview | null
+  derived: DatasetPreview | null
+  derived_formats: string[]
+}

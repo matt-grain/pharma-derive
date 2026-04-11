@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
+import pandas as pd
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -11,6 +13,7 @@ from src.api.workflow_manager import WorkflowManager
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+    from pathlib import Path
 
 
 @pytest.fixture
@@ -120,6 +123,134 @@ async def test_approve_nonexistent_workflow_returns_404(client: AsyncClient) -> 
 async def test_delete_nonexistent_workflow_returns_404(client: AsyncClient) -> None:
     # Act
     response = await client.delete("/api/v1/workflows/nonexistent-delete-id")
+
+    # Assert
+    assert response.status_code == 404
+    detail: str = response.json()["detail"]
+    assert "not found" in detail.lower()
+
+
+async def test_get_data_preview_unknown_workflow_returns_404(client: AsyncClient) -> None:
+    """GET /data on unknown workflow returns 404."""
+    # Act
+    response = await client.get("/api/v1/workflows/nonexistent/data")
+
+    # Assert
+    assert response.status_code == 404
+    detail: str = response.json()["detail"]
+    assert "not found" in detail.lower()
+
+
+async def test_get_data_preview_completed_workflow_returns_columns_and_rows(
+    client: AsyncClient,
+    tmp_path: Path,
+) -> None:
+    """GET /data on a completed workflow returns source + derived preview."""
+    # Arrange — write a small ADaM CSV to the output dir and register the workflow
+    workflow_id = "test-preview-wf"
+    adam_df = pd.DataFrame(
+        {
+            "USUBJID": ["P001", "P002", "P003"],
+            "AGE": [45, 72, 38],
+            "AGE_GROUP": ["adult", "senior", "adult"],
+        }
+    )
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    adam_csv = output_dir / f"{workflow_id}_adam.csv"
+    adam_df.to_csv(adam_csv, index=False)
+
+    # Patch settings to point to the temp output dir and register the workflow as known
+    with patch("src.api.routers.data.get_settings") as mock_settings:
+        mock_settings.return_value.output_dir = str(output_dir)
+        # Register the workflow by starting one (then override is_known via history trick)
+        from src.api.app import create_app
+
+        app = create_app()
+        manager = WorkflowManager()
+        # Inject a fake historic entry so is_known() returns True
+        from src.api.workflow_manager import _HistoricState  # type: ignore[attr-defined]
+
+        manager._history[workflow_id] = _HistoricState(  # type: ignore[attr-defined]
+            workflow_id, "completed", '{"derived_variables": [], "errors": []}'
+        )
+        app.state.workflow_manager = manager
+
+        transport = ASGITransport(app=app)  # type: ignore[arg-type]
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # Act
+            response = await ac.get(f"/api/v1/workflows/{workflow_id}/data")
+
+    # Assert
+    assert response.status_code == 200
+    body: dict[str, object] = response.json()
+    assert body["workflow_id"] == workflow_id
+    assert body["derived"] is not None
+    derived: dict[str, object] = body["derived"]  # type: ignore[assignment]
+    assert derived["row_count"] == 3
+    assert derived["column_count"] == 3
+    assert len(derived["columns"]) == 3  # type: ignore[arg-type]
+    derived_formats: list[str] = body["derived_formats"]  # type: ignore[assignment]
+    assert "csv" in derived_formats
+
+
+async def test_download_adam_default_csv_format(client: AsyncClient, tmp_path: Path) -> None:
+    """GET /adam without format param returns CSV (backward compatible)."""
+    # Arrange — write a temp CSV to the output dir
+    workflow_id = "test-csv-download"
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    csv_path = output_dir / f"{workflow_id}_adam.csv"
+    csv_path.write_text("USUBJID,AGE\nP001,45\n")
+
+    with patch("src.api.routers.data.get_settings") as mock_settings:
+        mock_settings.return_value.output_dir = str(output_dir)
+
+        # Act
+        response = await client.get(f"/api/v1/workflows/{workflow_id}/adam")
+
+    # Assert
+    assert response.status_code == 200
+    assert "text/csv" in response.headers["content-type"]
+
+
+async def test_download_adam_parquet_format_returns_file(
+    client: AsyncClient,
+    tmp_path: Path,
+) -> None:
+    """GET /adam?format=parquet returns parquet file when it exists."""
+    # Arrange — write a temp parquet file to the output dir
+    workflow_id = "test-parquet-download"
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    parquet_path = output_dir / f"{workflow_id}_adam.parquet"
+    pd.DataFrame({"USUBJID": ["P001"], "AGE": [45]}).to_parquet(parquet_path, index=False, engine="pyarrow")
+
+    with patch("src.api.routers.data.get_settings") as mock_settings:
+        mock_settings.return_value.output_dir = str(output_dir)
+
+        # Act
+        response = await client.get(f"/api/v1/workflows/{workflow_id}/adam?format=parquet")
+
+    # Assert
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/octet-stream"
+
+
+async def test_download_adam_missing_parquet_returns_404(
+    client: AsyncClient,
+    tmp_path: Path,
+) -> None:
+    """GET /adam?format=parquet returns 404 when parquet file does not exist."""
+    # Arrange — output dir exists but parquet file does not
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    with patch("src.api.routers.data.get_settings") as mock_settings:
+        mock_settings.return_value.output_dir = str(output_dir)
+
+        # Act
+        response = await client.get("/api/v1/workflows/no-such-wf/adam?format=parquet")
 
     # Assert
     assert response.status_code == 404

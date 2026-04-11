@@ -1,6 +1,6 @@
 # Implementation Status — pharma-derive
 
-**Last updated:** 2026-04-09
+**Last updated:** 2026-04-11
 **Plan:** IMPLEMENTATION_PLAN.md
 
 ## Progress Summary
@@ -16,8 +16,12 @@
 | Phase 7: Streamlit UI | ✅ Complete | 148 | 100% |
 | Phase 8: Design doc + Presentation | ✅ Complete | 148 | 100% |
 | Phase 9: Docker + README | ✅ Complete | 148 | 100% |
+| Phase 10: Production hardening | ✅ Complete | 153 | 100% |
+| Phase 11: UI/API split | ✅ Complete | 173 | 100% |
+| Phase 12: YAML agent config | ✅ Complete | 173 | 100% |
+| Phase 13: ADaM data output (F07) | ✅ Complete | 189 | 100% |
 
-**Overall:** 9/9 phases complete (100%) ✅
+**Overall:** 13/13 phases complete (100%) ✅
 
 ---
 
@@ -141,6 +145,42 @@
 
 ---
 
+## Phase 13 — ADaM Data Output (F07)
+
+**Implemented:** 2026-04-11
+**Agents:** `python-fastapi` (13.1), `vite-react` (13.2)
+**Tooling:** ✅ All pass (189 tests, 20 import contracts)
+
+### Phase 13.1 — Backend: Data Preview API + Parquet Export
+- ✅ 3 new API schemas: `ColumnInfo`, `DatasetPreview`, `DataPreviewResponse`
+- ✅ `GET /workflows/{id}/data` — returns source SDTM + derived ADaM preview (columns, dtypes, nulls, sample rows)
+- ✅ `GET /workflows/{id}/adam?format=csv|parquet` — format selection on download endpoint
+- ✅ Parquet export alongside CSV in `_export_adam()` (pyarrow engine)
+- ✅ Delete endpoint cleanup includes `.parquet` files
+- ✅ 5 new API tests (13 total)
+
+### Phase 13.2 — Frontend: Data Tab + UI Polish
+- ✅ `DataTab.tsx` — collapsible schema grid, sticky table headers, row numbers, alternating stripes, row count footer
+- ✅ Color-coded dtype badges (int64=blue, float64=violet, object=gray, bool=amber)
+- ✅ Export toolbar with CSV + Parquet download buttons
+- ✅ `useWorkflowData` TanStack Query hook with staleTime caching
+- ✅ Tab bar redesign — pill-style tabs with icons (BarChart3, GitBranch, Code2, Shield, Database), count badges
+- ✅ Header polish — bolder typography, divider dots, cleaner metadata row
+- ✅ SpecsPage Fragment key fix (React warning)
+- ✅ Test database isolation — session-scoped autouse fixture sets DATABASE_URL to in-memory SQLite
+
+### Files Created
+- `frontend/src/components/DataTab.tsx` (176 lines)
+- `IMPLEMENTATION_PLAN_PHASE_13_1.md`, `IMPLEMENTATION_PLAN_PHASE_13_2.md`
+
+### Files Modified
+- `src/api/schemas.py`, `src/api/routers/workflows.py`, `src/engine/orchestrator.py`
+- `tests/unit/test_api.py`, `tests/conftest.py`
+- `frontend/src/types/api.ts`, `frontend/src/lib/api.ts`, `frontend/src/hooks/useWorkflows.ts`
+- `frontend/src/pages/WorkflowDetailPage.tsx`, `frontend/src/pages/SpecsPage.tsx`
+
+---
+
 ## All Phases Complete ✅
 
-**Final metrics:** 148 tests | 89% coverage | 19 import contracts | 18 pre-push hooks | 10 custom arch checks
+**Final metrics:** 189 tests | 20 import contracts | 18 pre-push hooks | 10 custom arch checks
