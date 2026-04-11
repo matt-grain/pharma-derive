@@ -115,39 +115,43 @@
 
 ## Migration Plan
 
-### Phase 0 — Quick Wins (mechanical, low risk)
-- [ ] Add `AuditAction.HUMAN_APPROVED` and `AgentName.HUMAN` enum members
-- [ ] Replace `"review"` with `WorkflowStep.REVIEW` in orchestrator.py:80
-- [ ] Drop `.value` from `WorkflowStep.COMPLETED.value` in orchestrator_helpers.py:60
-- [ ] Add `response_model=WorkflowStatusResponse` to POST /approve endpoint
-- [ ] Add `from __future__ import annotations` to 5 __init__.py files
-- [ ] Add `Any` justification comments to 5 bare imports
-- [ ] Change CORS default from `"*"` to `"http://localhost:3000"`
-- [ ] Export TERMINAL_STATES from status.ts, import in Dashboard/Detail pages
-- [ ] Add missing WorkflowStep values to frontend status.ts
+**Last updated:** 2026-04-11 (post fix-review commit `ede5ace`)
 
-### Phase 1 — Structural Improvements (medium effort)
-- [ ] Route WorkflowManager DB queries through WorkflowStateRepository
-- [ ] Narrow AuditRecord.action/agent to enum types
+### Phase 0 — Quick Wins (mechanical, low risk) — DONE
+- [x] Add `AuditAction.HUMAN_APPROVED` and `AgentName.HUMAN` enum members (Fix 0.1)
+- [x] Replace `"review"` with `WorkflowStep.REVIEW` in orchestrator.py (Fix 0.1)
+- [x] Add `response_model` to POST /approve and `response_class` to GET /adam (Fix 0.2)
+- [x] Add `from __future__ import annotations` to 5 __init__.py files (Fix 0.3)
+- [x] Add `Any` justification comments to 5 bare imports (Fix 0.4)
+- [x] Export TERMINAL_STATUSES from status.ts, import in Dashboard/Detail/hooks (Fix 0.5)
+- [x] Add missing WorkflowStep values to frontend STATUS_COLOR_MAP (Fix 0.5)
+- [x] Remove phantom `initialized`/`started` entries from status.ts (Fix 0.5)
+
+### Phase 1 — Structural Improvements (medium effort) — DONE
+- [x] Route WorkflowManager DB queries through WorkflowStateRepository (Fix 1.1)
+- [x] Change CORS default from `"*"` to `"http://localhost:3000"` (Fix 1.2)
+- [x] Add tests for approve/delete/list API endpoints (Fix 1.3)
+- [x] Add WorkflowManager load_history/delete/is_known tests (Fix 1.3)
+- [x] Add `match=` to all bare pytest.raises calls (Fix 1.4)
+
+### Phase 2 — Architectural (medium-high effort) — DONE
+- [x] Create test_orchestrator_helpers.py with 6 test cases (Fix 2.1)
+- [x] Narrow AuditRecord.action/agent to `AuditAction | str` / `AgentName | str` (Fix 2.2)
+- [x] Narrow AuditTrail.record() params to accept enum types (Fix 2.2)
+- [x] Extract OrchestratorRepos dataclass (reduce __init__ params) (Fix 2.3)
+
+### Remaining — Deferred (not blocking homework submission)
+- [ ] Drop `.value` from `WorkflowStep.COMPLETED.value` in orchestrator_helpers.py:60 (kept as-is — `.value` IS correct because `current_state_value` returns `str`)
 - [ ] Replace raw `str` fields in API schemas with StrEnum types
-- [ ] Add `match=` to all bare pytest.raises calls
-- [ ] Create test_orchestrator_helpers.py
-- [ ] Add tests for approve/delete/list API endpoints
-- [ ] Add Vitest + RTL to frontend with smoke tests
+- [ ] Collapse WorkflowStatus into WorkflowStep (single source of truth) — risk of breaking changes
+- [ ] Add Vitest + RTL to frontend — large scope, separate initiative
+- [ ] Test Orchestrator.run() with TestModel/FunctionModel — requires LLM mock infra
 - [ ] Parametrize full FSM invalid transition matrix
-- [ ] Extract OrchestratorConfig dataclass (reduce 6-param __init__)
-
-### Phase 2 — Architectural Changes (higher effort)
-- [ ] Collapse WorkflowStatus into WorkflowStep (single source of truth)
-- [ ] Test Orchestrator.run() with TestModel/FunctionModel
-- [ ] Add Alembic migration infrastructure
-- [ ] Split Settings into DatabaseSettings/LLMSettings/APISettings
-- [ ] Add pagination to GET /workflows/ endpoint
+- [ ] Add Alembic migration infrastructure — production concern
+- [ ] Split Settings into DatabaseSettings/LLMSettings/APISettings — low impact for homework
+- [ ] Add pagination to GET /workflows/ — small dataset
 - [ ] Move YAML spec content fetch to TanStack Query (not useState)
 - [ ] Extract WorkflowDetailView feature component (thin page)
-
-### Phase 3 — Ongoing Discipline
 - [ ] Add eslint-plugin-boundaries for frontend import rules
 - [ ] Add frontend test CI gate (vitest run)
-- [ ] Monitor orchestrator_helpers.py for catch-all growth
 - [ ] Document Streamlit UI as deprecated (replaced by React SPA)
