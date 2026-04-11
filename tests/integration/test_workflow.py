@@ -53,13 +53,11 @@ def test_orchestrator_audit_trail_workflow_id_matches_fsm(sample_spec_path: Path
 
 
 def test_orchestrator_accepts_optional_repos(sample_spec_path: Path) -> None:
-    """Repos are optional — orchestrator must not fail when they're None."""
-    # Arrange & Act — no exception on construction with None repos
+    """Repos are optional — orchestrator must not fail when repos=None."""
+    # Arrange & Act — repos defaults to None → OrchestratorRepos() with all None fields
     orch = DerivationOrchestrator(
         spec_path=sample_spec_path,
-        pattern_repo=None,
-        qc_repo=None,
-        state_repo=None,
+        repos=None,
     )
 
     # Assert
@@ -97,7 +95,7 @@ def test_workflow_result_is_frozen() -> None:
     )
 
     # Act & Assert — frozen models raise ValidationError on mutation
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="study"):
         result.study = "OTHER"  # type: ignore[misc]
 
 

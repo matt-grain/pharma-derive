@@ -61,7 +61,7 @@ def test_load_agent_unknown_output_type_raises(tmp_path: Path) -> None:
     bad_yaml = tmp_path / "bad.yaml"
     bad_yaml.write_text("name: bad\noutput_type: NonExistent\ndeps_type: CoderDeps\nretries: 1\nsystem_prompt: test\n")
     # Act & Assert
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError, match="NonExistent"):
         load_agent(str(bad_yaml))
 
 

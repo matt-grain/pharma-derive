@@ -15,6 +15,8 @@ from src.api.routers.specs import router as specs_router
 from src.api.routers.workflows import router as workflows_router
 from src.api.workflow_manager import WorkflowManager
 from src.config.settings import get_settings
+from src.persistence.database import init_db
+from src.persistence.workflow_state_repo import WorkflowStateRepository
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -27,7 +29,10 @@ _mcp_app = mcp_server.http_app()
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Initialize WorkflowManager and MCP server on startup."""
     manager = WorkflowManager()
-    await manager.load_history()
+    session_factory = await init_db()
+    async with session_factory() as session:
+        state_repo = WorkflowStateRepository(session)
+        await manager.load_history(state_repo)
     app.state.workflow_manager = manager
     set_app_ref(app)
     # Chain the MCP server lifespan so its StreamableHTTP task group initializes

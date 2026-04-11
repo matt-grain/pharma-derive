@@ -6,7 +6,7 @@ Lives in domain/ — no framework dependencies beyond pandas/numpy.
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any  # Any: pd.Series[Any] — pandas stubs use Any for series dtype
 
 import numpy as np
 import pandas as pd

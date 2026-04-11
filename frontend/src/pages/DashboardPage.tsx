@@ -11,6 +11,7 @@ import {
 import { WorkflowCard } from '@/components/WorkflowCard'
 import { NewWorkflowDialog } from '@/components/NewWorkflowDialog'
 import { useWorkflows, useDeleteWorkflow } from '@/hooks/useWorkflows'
+import { TERMINAL_STATUSES } from '@/lib/status'
 
 export function DashboardPage() {
   const { data: workflows, isLoading, error } = useWorkflows()
@@ -18,8 +19,8 @@ export function DashboardPage() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const { mutate: deleteWorkflow } = useDeleteWorkflow()
 
-  const active = workflows?.filter((w) => !['completed', 'failed'].includes(w.status)) ?? []
-  const completed = workflows?.filter((w) => ['completed', 'failed'].includes(w.status)) ?? []
+  const active = workflows?.filter((w) => !(TERMINAL_STATUSES as readonly string[]).includes(w.status)) ?? []
+  const completed = workflows?.filter((w) => (TERMINAL_STATUSES as readonly string[]).includes(w.status)) ?? []
 
   return (
     <div className="p-8">

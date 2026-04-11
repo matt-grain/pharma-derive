@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     llm_model: str = "cdde-agent"
     api_host: str = "0.0.0.0"  # noqa: S104 — default binds all interfaces; override via env for production
     api_port: int = 8000
-    cors_origins: str = "*"
+    cors_origins: str = "http://localhost:3000"
     output_dir: str = "output"
 
 

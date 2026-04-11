@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -22,6 +23,7 @@ from src.domain.models import (
     AgentName,
     AuditAction,
     DerivationStatus,
+    WorkflowStep,
 )
 from src.domain.source_loader import get_source_columns, load_source_data
 from src.domain.spec_parser import parse_spec
@@ -39,6 +41,15 @@ if TYPE_CHECKING:
     )
 
 
+@dataclass
+class OrchestratorRepos:
+    """Optional repository dependencies for persistence."""
+
+    pattern_repo: PatternRepository | None = None
+    qc_repo: QCHistoryRepository | None = None
+    state_repo: WorkflowStateRepository | None = None
+
+
 class DerivationOrchestrator:
     """Orchestrates spec interpretation, derivation, QC, debugging, and audit."""
 
@@ -46,16 +57,15 @@ class DerivationOrchestrator:
         self,
         spec_path: str | Path,
         llm_base_url: str | None = None,
-        pattern_repo: PatternRepository | None = None,
-        qc_repo: QCHistoryRepository | None = None,
-        state_repo: WorkflowStateRepository | None = None,
+        repos: OrchestratorRepos | None = None,
         output_dir: Path | None = None,
     ) -> None:
+        effective_repos = repos or OrchestratorRepos()
         self._spec_path = Path(spec_path)
         self._llm_base_url = llm_base_url or get_settings().llm_base_url
-        self._pattern_repo = pattern_repo
-        self._qc_repo = qc_repo
-        self._state_repo = state_repo
+        self._pattern_repo = effective_repos.pattern_repo
+        self._qc_repo = effective_repos.qc_repo
+        self._state_repo = effective_repos.state_repo
         self._output_dir = output_dir
         self._fsm = WorkflowFSM(workflow_id=uuid4().hex[:8])
         self._state = WorkflowState(workflow_id=self._fsm.workflow_id)
@@ -77,11 +87,13 @@ class DerivationOrchestrator:
     @property
     def awaiting_approval(self) -> bool:
         """True if the workflow is paused at the review gate waiting for human approval."""
-        return self._fsm.current_state_value == "review" and not self._approval_event.is_set()
+        return self._fsm.current_state_value == WorkflowStep.REVIEW.value and not self._approval_event.is_set()
 
     def approve(self) -> None:
         """Release the HITL gate — workflow proceeds to audit step."""
-        self._audit_trail.record(variable="", action="human_approved", agent="human", details={"gate": "review"})
+        self._audit_trail.record(
+            variable="", action=AuditAction.HUMAN_APPROVED, agent=AgentName.HUMAN, details={"gate": "review"}
+        )
         self._approval_event.set()
 
     async def run(self) -> WorkflowResult:
@@ -150,7 +162,7 @@ class DerivationOrchestrator:
         """Persist final workflow state to long-term memory."""
         if self._state_repo is None:
             return
-        fsm_state = str(self._fsm.current_state_value or "unknown")
+        fsm_state = str(self._fsm.current_state_value or "unknown")  # fallback for None state
         state_json = serialize_workflow_state(self._state, fsm_state)
         await self._state_repo.save(
             workflow_id=self._state.workflow_id,

@@ -1,5 +1,7 @@
 """Persistence layer — re-exports all repositories."""
 
+from __future__ import annotations
+
 from src.persistence.base_repo import BaseRepository
 from src.persistence.feedback_repo import FeedbackRepository
 from src.persistence.pattern_repo import PatternRepository

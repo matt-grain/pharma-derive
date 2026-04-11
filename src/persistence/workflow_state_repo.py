@@ -39,6 +39,12 @@ class WorkflowStateRepository(BaseRepository):
         row = result.scalar_one_or_none()
         return row.state_json if row else None
 
+    async def list_all(self) -> list[tuple[str, str, str]]:
+        """Return all (workflow_id, fsm_state, state_json) tuples."""
+        stmt = select(WorkflowStateRow)
+        result = await self._execute(stmt)
+        return [(r.workflow_id, r.fsm_state, r.state_json) for r in result.scalars()]
+
     async def delete(self, workflow_id: str) -> None:
         """Remove workflow state after successful completion."""
         stmt = select(WorkflowStateRow).where(WorkflowStateRow.workflow_id == workflow_id)

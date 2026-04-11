@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any  # Any: SQLAlchemy Result[Any] — generic Row type not narrowable at this layer
 
 from loguru import logger
 from sqlalchemy import Executable  # noqa: TC002 — used in _execute param type at runtime

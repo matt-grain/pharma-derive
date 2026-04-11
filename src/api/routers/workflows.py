@@ -21,6 +21,8 @@ from src.api.schemas import (
     WorkflowStatusResponse,
 )
 from src.config.settings import get_settings
+from src.persistence.database import init_db
+from src.persistence.workflow_state_repo import WorkflowStateRepository
 
 if TYPE_CHECKING:
     from src.domain.dag import DerivationDAG
@@ -55,7 +57,7 @@ async def list_workflows(manager: WorkflowManagerDep) -> list[WorkflowStatusResp
     return [_build_status_response(wf_id, manager) for wf_id in manager.list_workflow_ids()]
 
 
-@router.post("/{workflow_id}/approve", status_code=200)
+@router.post("/{workflow_id}/approve", response_model=WorkflowStatusResponse, status_code=200)
 async def approve_workflow(workflow_id: str, manager: WorkflowManagerDep) -> WorkflowStatusResponse:
     """Approve a workflow at the HITL review gate — releases it to proceed to audit."""
     orch = manager.get_orchestrator(workflow_id)
@@ -72,7 +74,11 @@ async def delete_workflow(workflow_id: str, manager: WorkflowManagerDep) -> None
     """Delete a workflow from history. Removes DB state and output files."""
     if not manager.is_known(workflow_id):
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
-    await manager.delete_workflow(workflow_id)
+    session_factory = await init_db()
+    async with session_factory() as session:
+        state_repo = WorkflowStateRepository(session)
+        await manager.delete_workflow(workflow_id, state_repo)
+        await session.commit()
     # Clean up output files
     output_dir = Path(get_settings().output_dir)
     for suffix in ("_audit.json", "_adam.csv"):
@@ -163,7 +169,7 @@ async def get_workflow_audit(
     return []
 
 
-@router.get("/{workflow_id}/adam", status_code=200)
+@router.get("/{workflow_id}/adam", response_class=FileResponse, status_code=200)
 async def download_adam(workflow_id: str) -> FileResponse:
     """Download the derived ADaM CSV file."""
     adam_path = Path(get_settings().output_dir) / f"{workflow_id}_adam.csv"

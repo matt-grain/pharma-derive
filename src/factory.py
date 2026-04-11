@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from src.config.settings import get_settings
-from src.engine.orchestrator import DerivationOrchestrator
+from src.engine.orchestrator import DerivationOrchestrator, OrchestratorRepos
 from src.persistence import (
     PatternRepository,
     QCHistoryRepository,
@@ -34,12 +34,15 @@ async def create_orchestrator(
     session_factory = await init_db(url)
     session = session_factory()
 
-    orch = DerivationOrchestrator(
-        spec_path=spec_path,
-        llm_base_url=llm_base_url or settings.llm_base_url,
+    repos = OrchestratorRepos(
         pattern_repo=PatternRepository(session),
         qc_repo=QCHistoryRepository(session),
         state_repo=WorkflowStateRepository(session),
+    )
+    orch = DerivationOrchestrator(
+        spec_path=spec_path,
+        llm_base_url=llm_base_url or settings.llm_base_url,
+        repos=repos,
         output_dir=output_dir,
     )
     return orch, session

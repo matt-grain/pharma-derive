@@ -14,12 +14,12 @@ from src.domain.workflow_models import (
     WorkflowResult,  # noqa: TC001 — used in asyncio.Task[WorkflowResult] dict type, not just annotations
 )
 from src.factory import create_orchestrator
-from src.persistence.database import init_db
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from src.engine.orchestrator import DerivationOrchestrator
+    from src.persistence.workflow_state_repo import WorkflowStateRepository
 
 
 class _HistoricState:
@@ -45,21 +45,11 @@ class WorkflowManager:
         self._results: dict[str, WorkflowResult] = {}
         self._history: dict[str, _HistoricState] = {}
 
-    async def load_history(self) -> None:
+    async def load_history(self, state_repo: WorkflowStateRepository) -> None:
         """Load completed/failed workflows from DB so they appear in listings after restart."""
-        from sqlalchemy import select
-
-        from src.persistence.orm_models import WorkflowStateRow
-
-        session_factory = await init_db()
-        async with session_factory() as session:
-            result = await session.execute(select(WorkflowStateRow))
-            for row in result.scalars():
-                self._history[row.workflow_id] = _HistoricState(
-                    row.workflow_id,
-                    row.fsm_state,
-                    row.state_json,
-                )
+        rows = await state_repo.list_all()
+        for wf_id, fsm_state, state_json in rows:
+            self._history[wf_id] = _HistoricState(wf_id, fsm_state, state_json)
         logger.info("Loaded {n} historic workflows from DB", n=len(self._history))
 
     async def start_workflow(
@@ -128,20 +118,12 @@ class WorkflowManager:
         """All known workflow IDs (active + completed + historic)."""
         return list({*self._active.keys(), *self._results.keys(), *self._history.keys()})
 
-    async def delete_workflow(self, workflow_id: str) -> None:
+    async def delete_workflow(self, workflow_id: str, state_repo: WorkflowStateRepository) -> None:
         """Remove a workflow from all in-memory stores and delete its DB state."""
         self._orchestrators.pop(workflow_id, None)
         self._results.pop(workflow_id, None)
         self._history.pop(workflow_id, None)
-        # Delete from DB
-        from sqlalchemy import delete as sql_delete
-
-        from src.persistence.orm_models import WorkflowStateRow
-
-        session_factory = await init_db()
-        async with session_factory() as session:
-            await session.execute(sql_delete(WorkflowStateRow).where(WorkflowStateRow.workflow_id == workflow_id))
-            await session.commit()
+        await state_repo.delete(workflow_id)
 
     async def cancel_active(self) -> None:
         """Cancel all running workflows. Used for graceful shutdown and test cleanup."""

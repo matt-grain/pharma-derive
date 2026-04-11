@@ -23,7 +23,9 @@
       "Bash(python -c \"import sys,json; traces=json.load\\(sys.stdin\\); print\\(f'Traces: {len\\(traces\\)}'\\); [print\\(f'  {t[\\\\\"id\\\\\"][:12]}... task={t[\\\\\"task\\\\\"][:50]} spans={len\\(t[\\\\\"spans\\\\\"]\\)}'\\) for t in traces]\")",
       "Bash(python -c \"import sys,json; print\\('QC' if 'QC' in json.load\\(sys.stdin\\)['messages'][0]['content'] else 'Coder'\\)\")",
       "Bash(git mv:*)",
-      "Bash(git status:*)"
+      "Bash(git status:*)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} pending'\\); [print\\(f'  #{r[\\\\\"request_id\\\\\"]}: {r[\\\\\"preview\\\\\"][:60]}'\\) for r in d]\")",
+      "Bash(python:*)"
     ]
   }
 }

@@ -9,8 +9,7 @@ import { DAGView } from '@/components/DAGView'
 import { CodePanel } from '@/components/CodePanel'
 import { AuditTable } from '@/components/AuditTable'
 import { useWorkflowStatus, useWorkflowDag, useWorkflowAudit, useWorkflowResult, useApproveWorkflow } from '@/hooks/useWorkflows'
-
-const TERMINAL = ['completed', 'failed']
+import { TERMINAL_STATUSES } from '@/lib/status'
 
 export function WorkflowDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -20,7 +19,7 @@ export function WorkflowDetailPage() {
   const { data: status, isLoading, error } = useWorkflowStatus(workflowId)
   const { data: dagNodes } = useWorkflowDag(workflowId)
   const { data: auditRecords } = useWorkflowAudit(workflowId)
-  const isTerminal = TERMINAL.includes(status?.status ?? '')
+  const isTerminal = (TERMINAL_STATUSES as readonly string[]).includes(status?.status ?? '')
   const { data: result } = useWorkflowResult(workflowId, isTerminal)
   const { mutate: approve, isPending: isApproving } = useApproveWorkflow(workflowId)
 

@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path  # noqa: TC003 — used at runtime in to_json() body (path.parent.mkdir)
 
-from src.domain.models import AuditRecord
+from src.domain.models import AgentName, AuditAction, AuditRecord
 
 
 class AuditTrail:
@@ -21,8 +21,8 @@ class AuditTrail:
     def record(
         self,
         variable: str,
-        action: str,
-        agent: str,
+        action: AuditAction | str,
+        agent: AgentName | str,
         details: dict[str, str | int | float | bool | None] | None = None,
     ) -> AuditRecord:
         rec = AuditRecord(

@@ -38,7 +38,7 @@ def download() -> None:
 
     # Sparse checkout — only download the folders we need
     run(["git", "clone", "--filter=blob:none", "--sparse", REPO_URL, str(TEMP_DIR)])
-    run(["git", "sparse-checkout", "set"] + SPARSE_PATHS, cwd=str(TEMP_DIR))
+    run(["git", "sparse-checkout", "set", *SPARSE_PATHS], cwd=str(TEMP_DIR))
 
     # Move data folders to final location
     for sparse_path in SPARSE_PATHS:

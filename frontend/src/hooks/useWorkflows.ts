@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-
-const TERMINAL_STATES = ['completed', 'failed'] as const
+import { TERMINAL_STATUSES } from '@/lib/status'
 
 export function useHealth() {
   return useQuery({
@@ -32,7 +31,7 @@ export function useWorkflowStatus(id: string) {
     queryFn: () => api.getWorkflowStatus(id),
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      return status !== undefined && (TERMINAL_STATES as readonly string[]).includes(status)
+      return status !== undefined && (TERMINAL_STATUSES as readonly string[]).includes(status)
         ? false
         : 2_000
     },

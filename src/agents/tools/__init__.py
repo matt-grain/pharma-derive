@@ -20,6 +20,8 @@ Raising ``ModelRetry("message")`` from a tool explicitly triggers the retry with
 consuming the generic exception path — prefer this for known-recoverable failures.
 """
 
+from __future__ import annotations
+
 from src.agents.tools.execute_code import execute_code
 from src.agents.tools.inspect_data import inspect_data
 

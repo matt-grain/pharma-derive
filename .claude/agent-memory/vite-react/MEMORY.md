@@ -1,0 +1,1 @@
+- [Phase 11.3 Frontend](project_phase11_3_frontend.md) — Vite+React SPA in frontend/, build passes, dev on :3000 proxying :8000

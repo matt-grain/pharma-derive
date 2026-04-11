@@ -3,6 +3,8 @@
 
 export type StatusColor = 'emerald' | 'amber' | 'red' | 'gray' | 'blue'
 
+export const TERMINAL_STATUSES = ['completed', 'failed'] as const
+
 const STATUS_COLOR_MAP: Record<string, StatusColor> = {
   approved: 'emerald',
   completed: 'emerald',
@@ -11,13 +13,16 @@ const STATUS_COLOR_MAP: Record<string, StatusColor> = {
   verifying: 'amber',
   running: 'amber',
   review: 'amber',
+  deriving: 'amber',
+  debugging: 'amber',
   qc_mismatch: 'red',
   failed: 'red',
   error: 'red',
   pending: 'gray',
   not_started: 'gray',
-  initialized: 'blue',
-  started: 'blue',
+  created: 'blue',
+  spec_review: 'blue',
+  dag_built: 'blue',
 }
 
 export function getStatusColor(status: string): StatusColor {

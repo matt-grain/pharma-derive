@@ -95,3 +95,33 @@ async def test_get_result_while_running_returns_409(client: AsyncClient) -> None
     assert result_response.status_code == 409
     detail: str = result_response.json()["detail"]
     assert "running" in detail.lower()
+
+
+async def test_list_workflows_returns_array(client: AsyncClient) -> None:
+    # Act
+    response = await client.get("/api/v1/workflows/")
+
+    # Assert
+    assert response.status_code == 200
+    body: list[object] = response.json()
+    assert isinstance(body, list)
+
+
+async def test_approve_nonexistent_workflow_returns_404(client: AsyncClient) -> None:
+    # Act
+    response = await client.post("/api/v1/workflows/nonexistent/approve")
+
+    # Assert
+    assert response.status_code == 404
+    detail: str = response.json()["detail"]
+    assert "not found" in detail.lower()
+
+
+async def test_delete_nonexistent_workflow_returns_404(client: AsyncClient) -> None:
+    # Act
+    response = await client.delete("/api/v1/workflows/nonexistent-delete-id")
+
+    # Assert
+    assert response.status_code == 404
+    detail: str = response.json()["detail"]
+    assert "not found" in detail.lower()

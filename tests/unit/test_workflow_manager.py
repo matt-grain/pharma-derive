@@ -7,6 +7,19 @@ import pytest
 from src.api.workflow_manager import WorkflowManager
 
 
+class _FakeStateRepo:
+    """In-memory stub for WorkflowStateRepository — avoids DB in unit tests."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, tuple[str, str]] = {}
+
+    async def list_all(self) -> list[tuple[str, str, str]]:
+        return [(wf_id, fsm, state) for wf_id, (fsm, state) in self.store.items()]
+
+    async def delete(self, workflow_id: str) -> None:
+        self.store.pop(workflow_id, None)
+
+
 async def test_workflow_manager_starts_empty() -> None:
     # Arrange
     manager = WorkflowManager()
@@ -61,6 +74,36 @@ async def test_start_workflow_registers_orchestrator(sample_spec_path: str) -> N
 
     # Cleanup
     await manager.cancel_active()
+
+
+async def test_is_known_after_start_returns_true(sample_spec_path: str) -> None:
+    # Arrange
+    manager = WorkflowManager()
+
+    # Act
+    wf_id = await manager.start_workflow(sample_spec_path)
+
+    # Assert
+    assert manager.is_known(wf_id) is True
+
+    # Cleanup
+    await manager.cancel_active()
+
+
+async def test_delete_workflow_removes_from_history() -> None:
+    # Arrange — seed history via load_history so the workflow is "known"
+    manager = WorkflowManager()
+    state_json = '{"study": "test", "derived_variables": [], "errors": [], "dag_nodes": {}}'
+    fake_repo = _FakeStateRepo()
+    fake_repo.store["wf-test-123"] = ("completed", state_json)
+    await manager.load_history(fake_repo)  # type: ignore[arg-type]  # fake satisfies the protocol
+    assert manager.is_known("wf-test-123")
+
+    # Act
+    await manager.delete_workflow("wf-test-123", fake_repo)  # type: ignore[arg-type]  # fake satisfies the protocol
+
+    # Assert
+    assert not manager.is_known("wf-test-123")
 
 
 @pytest.fixture

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, timedelta
-from typing import Any, Final
+from typing import Any, Final  # Any: pandas Series dtype param not narrowable
 
 import numpy as np
 import pandas as pd

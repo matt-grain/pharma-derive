@@ -29,7 +29,7 @@ def test_parse_spec_simple_mock(sample_spec_path: Path) -> None:
 
 def test_parse_spec_missing_file_raises() -> None:
     # Act & Assert
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(FileNotFoundError, match=r"spec\.yaml"):
         parse_spec("/nonexistent/path/spec.yaml")
 
 
@@ -64,7 +64,7 @@ def test_load_source_data_missing_path_raises() -> None:
     )
 
     # Act & Assert
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(FileNotFoundError, match="nonexistent"):
         load_source_data(spec)
 
 

@@ -150,6 +150,7 @@ class AuditAction(StrEnum):
     DERIVATION_COMPLETE = "derivation_complete"
     AUDIT_COMPLETE = "audit_complete"
     STATE_TRANSITION = "state_transition"
+    HUMAN_APPROVED = "human_approved"
 
 
 class AgentName(StrEnum):
@@ -160,6 +161,7 @@ class AgentName(StrEnum):
     QC_PROGRAMMER = "qc_programmer"
     DEBUGGER = "debugger"
     AUDITOR = "auditor"
+    HUMAN = "human"
 
 
 class DAGNode(BaseModel):
@@ -199,8 +201,9 @@ class AuditRecord(BaseModel, frozen=True):
     timestamp: str
     workflow_id: str
     variable: str
-    action: str
-    agent: str
+    # AuditAction | str — FSM concatenates f"{AuditAction.STATE_TRANSITION}:{target.id}" which is a plain str
+    action: AuditAction | str
+    agent: AgentName | str
     details: dict[str, str | int | float | bool | None] = {}
 
 

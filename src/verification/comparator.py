@@ -8,7 +8,7 @@ from __future__ import annotations
 import ast
 from difflib import SequenceMatcher
 from io import StringIO
-from typing import Any
+from typing import Any  # Any: pd.Series[Any] — pandas stubs don't narrow from read_json
 
 import pandas as pd
 from pydantic import BaseModel
