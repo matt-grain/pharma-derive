@@ -84,13 +84,13 @@ def _load_derived(output_dir: Path, workflow_id: str, limit: int) -> DatasetPrev
     csv_path = output_dir / f"{workflow_id}_adam.csv"
     if not csv_path.exists():
         return None
-    return _build_dataset_preview(pd.read_csv(csv_path), "ADaM (Derived)", limit)
+    return _build_dataset_preview(pd.read_csv(csv_path, low_memory=False), "ADaM (Derived)", limit)
 
 
 def _load_source(manager: WorkflowManagerDep, workflow_id: str, limit: int) -> DatasetPreview | None:
-    """Load source SDTM data from the in-memory orchestrator spec."""
-    orch = manager.get_orchestrator(workflow_id)
-    spec = orch.state.spec if orch is not None else None
+    """Load source SDTM data from the pipeline context spec."""
+    ctx = manager.get_context(workflow_id)
+    spec = ctx.spec if ctx is not None else None
     if spec is None:
         return None
     try:

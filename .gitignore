@@ -24,3 +24,18 @@ Thumbs.db
 # Data files — too large for git, download via scripts/download_data.py
 data/sdtm/
 data/adam/
+
+# Runtime artifacts — generated per run, not part of deliverable
+cdde.db
+cdde.db-journal
+cdde.db-wal
+cdde.db-shm
+output/
+traces/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# Local/per-developer settings
+.claude/settings.local.json

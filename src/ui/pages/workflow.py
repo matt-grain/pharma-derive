@@ -54,20 +54,45 @@ def render_workflow_page() -> None:
 
 
 async def _run_workflow(spec_path: str, llm_url: str, output_dir: Path) -> WorkflowResult:
-    """Run the orchestrator with SQLite persistence."""
-    from src.factory import create_orchestrator
+    """Run the pipeline interpreter with SQLite persistence."""
+    from src.domain.models import DerivationStatus
+    from src.domain.workflow_models import WorkflowStatus
+    from src.factory import create_pipeline_orchestrator
 
-    orch, session = await create_orchestrator(
+    interpreter, ctx, fsm, session = await create_pipeline_orchestrator(
         spec_path=spec_path,
         llm_base_url=llm_url,
         output_dir=output_dir,
     )
     try:
-        result = await orch.run()
+        await interpreter.run()
+        fsm.complete()
         await session.commit()
-        return result
+    except Exception:
+        fsm.fail()
+        await session.rollback()
+        raise
     finally:
         await session.close()
+
+    dag = ctx.dag
+    qc_summary = (
+        {v: (n.qc_verdict.value if n.qc_verdict else DerivationStatus.PENDING.value) for v, n in dag.nodes.items()}
+        if dag
+        else {}
+    )
+    derived = [v for v, n in dag.nodes.items() if n.status == DerivationStatus.APPROVED] if dag else []
+    is_done = fsm.is_terminal and not fsm.is_failed
+    return WorkflowResult(
+        workflow_id=ctx.workflow_id,
+        study=ctx.spec.metadata.study if ctx.spec else "unknown",
+        status=WorkflowStatus.COMPLETED if is_done else WorkflowStatus.FAILED,
+        derived_variables=derived,
+        qc_summary=qc_summary,
+        audit_records=ctx.audit_trail.records,
+        errors=ctx.errors,
+        duration_seconds=0.0,
+    )
 
 
 def _render_results(result: WorkflowResult) -> None:

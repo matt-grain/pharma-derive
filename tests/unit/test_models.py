@@ -27,7 +27,7 @@ def test_derivation_rule_frozen_raises_on_mutation() -> None:
     )
 
     # Act & Assert
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="frozen_instance"):
         rule.variable = "OTHER"  # type: ignore[misc]
 
 
@@ -82,6 +82,7 @@ def test_workflow_step_enum_values() -> None:
     # Arrange
     expected = {
         "created",
+        "running",  # background task accepted, pipeline executing
         "spec_review",
         "dag_built",
         "deriving",
@@ -91,6 +92,7 @@ def test_workflow_step_enum_values() -> None:
         "auditing",
         "completed",
         "failed",
+        "unknown",  # workflow not found or state indeterminate
     }
 
     # Act
@@ -123,7 +125,7 @@ def test_audit_record_frozen() -> None:
     )
 
     # Act & Assert
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="frozen_instance"):
         record.timestamp = "other"  # type: ignore[misc]
 
     # Assert

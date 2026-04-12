@@ -11,8 +11,13 @@ from src.domain.exceptions import CDDEError
 from src.domain.models import AgentName, AuditAction
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from src.domain.pipeline_models import PipelineDefinition, StepDefinition
     from src.engine.pipeline_context import PipelineContext
+    from src.engine.pipeline_fsm import PipelineFSM
+
+    StepCheckpoint = Callable[[str], Awaitable[None]]
 
 
 class PipelineInterpreter:
@@ -21,9 +26,15 @@ class PipelineInterpreter:
     The interpreter is a thin loop — all business logic lives in step executors.
     """
 
-    def __init__(self, pipeline: PipelineDefinition, ctx: PipelineContext) -> None:
+    def __init__(
+        self,
+        pipeline: PipelineDefinition,
+        ctx: PipelineContext,
+        fsm: PipelineFSM | None = None,
+    ) -> None:
         self._pipeline = pipeline
         self._ctx = ctx
+        self._fsm = fsm
         self._execution_order = topological_sort(pipeline.steps)
         self._current_step: str | None = None
 
@@ -36,8 +47,15 @@ class PipelineInterpreter:
     def pipeline(self) -> PipelineDefinition:
         return self._pipeline
 
-    async def run(self) -> None:
-        """Execute all pipeline steps in topological order."""
+    async def run(self, on_step_complete: StepCheckpoint | None = None) -> None:
+        """Execute all pipeline steps in topological order.
+
+        If ``on_step_complete`` is supplied, it is awaited with the step id
+        after each step finishes successfully. Used by the workflow manager
+        to persist a checkpoint so in-flight runs survive a backend restart.
+        A checkpoint failure must not abort the run — callers are responsible
+        for catching their own errors.
+        """
         logger.info(
             "Starting pipeline '{name}' ({n} steps)",
             name=self._pipeline.name,
@@ -52,7 +70,11 @@ class PipelineInterpreter:
 
         for step in self._execution_order:
             self._current_step = step.id
+            if self._fsm is not None:
+                self._fsm.advance(step.id)
             await self._execute_step(step)
+            if on_step_complete is not None:
+                await on_step_complete(step.id)
 
         self._current_step = None
         logger.info("Pipeline '{name}' completed successfully", name=self._pipeline.name)

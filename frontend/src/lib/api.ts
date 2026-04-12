@@ -15,7 +15,15 @@ const BASE = '/api/v1'
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init)
   if (!res.ok) {
-    throw new Error(`API error ${res.status}: ${res.statusText}`)
+    // Try to extract a human-friendly reason from the FastAPI error payload
+    let detail = res.statusText
+    try {
+      const body = (await res.json()) as { detail?: unknown }
+      if (typeof body.detail === 'string') detail = body.detail
+    } catch {
+      // response body wasn't JSON — fall back to statusText
+    }
+    throw new Error(`${res.status}: ${detail}`)
   }
   return res.json() as Promise<T>
 }
@@ -80,4 +88,7 @@ export const api = {
     const res = await fetch(`${BASE}/workflows/${id}`, { method: 'DELETE' })
     if (!res.ok) throw new Error(`API error ${res.status}: ${res.statusText}`)
   },
+
+  rerunWorkflow: (id: string): Promise<StartWorkflowResponse> =>
+    fetchJson<StartWorkflowResponse>(`${BASE}/workflows/${id}/rerun`, { method: 'POST' }),
 }

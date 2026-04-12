@@ -165,7 +165,9 @@ PipelineInterpreter.run()
         └── PipelineFSM.advance(step.id)
 ```
 
-The `PipelineFSM` auto-generates states from step IDs — no manual FSM maintenance. See `docs/COMPOSITION_LAYER.md` for the full justification of building this thin layer on top of PydanticAI.
+The `PipelineFSM` auto-generates states from step IDs — no manual FSM maintenance.
+
+See [docs/COMPOSITION_LAYER.md](docs/COMPOSITION_LAYER.md) for the full justification of building this composition layer on top of PydanticAI, including comparisons with CrewAI, LangGraph, Prefect, and Temporal.
 
 ## Data Security Architecture — Dual-Dataset Pattern
 

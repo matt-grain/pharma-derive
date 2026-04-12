@@ -272,3 +272,51 @@ async def test_get_pipeline_returns_definition(client: AsyncClient) -> None:
     step_ids = [s["id"] for s in steps]
     assert "parse_spec" in step_ids
     assert "human_review" in step_ids
+
+
+# ---------------------------------------------------------------------------
+# DAGNodeOut schema — source_columns field
+# ---------------------------------------------------------------------------
+
+
+def test_dag_node_out_defaults_source_columns_to_empty_list() -> None:
+    """DAGNodeOut.source_columns defaults to [] for backward compatibility."""
+    # Arrange & Act
+    from src.api.schemas import DAGNodeOut
+
+    node = DAGNodeOut(variable="AGE_GROUP", status="pending", layer=0)
+
+    # Assert
+    assert node.source_columns == []
+
+
+def test_source_column_out_stores_name_and_domain() -> None:
+    """SourceColumnOut is a frozen model carrying name + CDISC domain code."""
+    # Arrange & Act
+    from src.api.schemas import SourceColumnOut
+
+    col = SourceColumnOut(name="AGE", domain="dm")
+
+    # Assert
+    assert col.name == "AGE"
+    assert col.domain == "dm"
+
+
+def test_dag_node_out_with_source_columns_round_trips() -> None:
+    """DAGNodeOut serialises and deserialises source_columns correctly."""
+    # Arrange
+    from src.api.schemas import DAGNodeOut, SourceColumnOut
+
+    node = DAGNodeOut(
+        variable="AGE_GROUP",
+        status="pending",
+        layer=1,
+        source_columns=[SourceColumnOut(name="AGE", domain="dm")],
+    )
+
+    # Act
+    payload = node.model_dump()
+
+    # Assert
+    assert len(payload["source_columns"]) == 1
+    assert payload["source_columns"][0] == {"name": "AGE", "domain": "dm"}

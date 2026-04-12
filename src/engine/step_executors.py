@@ -36,7 +36,7 @@ class AgentStepExecutor(StepExecutor):
         ctx.audit_trail.record(
             variable="",
             action=AuditAction.STEP_STARTED,
-            agent=AgentName.ORCHESTRATOR,
+            agent=step.agent,  # guaranteed non-None: guard at line 31-33 ensures step.agent is set
             details={"step": step.id, "agent": step.agent},
         )
 

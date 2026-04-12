@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 
-class WorkflowCreateRequest(BaseModel):
+class WorkflowCreateRequest(BaseModel, frozen=True):
     spec_path: str
     llm_base_url: str | None = None
 
@@ -54,6 +54,13 @@ class SpecListItem(BaseModel, frozen=True):
     derivation_count: int
 
 
+class SourceColumnOut(BaseModel, frozen=True):
+    """SDTM source column that feeds a derivation — used for lineage traceability (ADaM IG §2.6)."""
+
+    name: str  # SDTM column name, e.g. "AGE", "RFXSTDTC"
+    domain: str  # SDTM domain code (lowercase per CDISC convention), e.g. "dm", "ex"
+
+
 class DAGNodeOut(BaseModel, frozen=True):
     variable: str
     status: str
@@ -63,6 +70,7 @@ class DAGNodeOut(BaseModel, frozen=True):
     qc_verdict: str | None = None
     approved_code: str | None = None
     dependencies: list[str] = []
+    source_columns: list[SourceColumnOut] = []  # SDTM columns this derivation reads directly
 
 
 class ColumnInfo(BaseModel, frozen=True):

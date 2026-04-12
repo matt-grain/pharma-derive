@@ -39,7 +39,7 @@ def test_parse_spec_invalid_yaml_raises(tmp_path: Path) -> None:
     bad_file.write_text("not: a: valid: spec: [")
 
     # Act & Assert
-    with pytest.raises(yaml.YAMLError):
+    with pytest.raises(yaml.YAMLError, match="mapping values are not allowed"):
         parse_spec(bad_file)
 
 

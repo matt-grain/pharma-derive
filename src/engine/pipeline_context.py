@@ -34,6 +34,10 @@ class PipelineContext:
     derived_df: pd.DataFrame | None = None
     synthetic_csv: str = ""
     dag: DerivationDAG | None = None
+    # SDTM column → domain code map, populated by parse_spec step.
+    # Historic workflows loaded from DB will have an empty map — source_columns
+    # will be empty in the DAG response for those (known limitation, acceptable for now).
+    source_column_domains: dict[str, str] = field(default_factory=lambda: dict[str, str]())
 
     # Pipeline metadata
     # Any: step outputs are heterogeneous (DataFrames, specs, audit summaries, etc.)

@@ -20,9 +20,9 @@ from src.domain.models import (
     OutputDType,
     QCVerdict,
 )
-from src.engine.derivation_runner import (
-    _apply_series_to_df,  # pyright: ignore[reportPrivateUsage]  # testing private helper
+from src.engine.debug_runner import (
     _resolve_approved_code,  # pyright: ignore[reportPrivateUsage]
+    apply_series_to_df,
 )
 
 
@@ -109,34 +109,34 @@ def test_resolve_approved_code_neither_returns_none() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _apply_series_to_df
+# apply_series_to_df
 # ---------------------------------------------------------------------------
 
 
-def test_apply_series_to_df_adds_column_to_dataframe() -> None:
-    """_apply_series_to_df deserializes series_json and adds column to DataFrame."""
+def testapply_series_to_df_adds_column_to_dataframe() -> None:
+    """apply_series_to_df deserializes series_json and adds column to DataFrame."""
     # Arrange
     derived_df = pd.DataFrame({"age": [10, 20, 30]})
     series = pd.Series([1, 2, 3], name="TEST_VAR")
     exec_result = ExecutionResult(success=True, series_json=series.to_json(), dtype="int64")
 
     # Act
-    _apply_series_to_df("TEST_VAR", exec_result, derived_df)
+    apply_series_to_df("TEST_VAR", exec_result, derived_df)
 
     # Assert
     assert "TEST_VAR" in derived_df.columns
     assert list(derived_df["TEST_VAR"]) == [1, 2, 3]
 
 
-def test_apply_series_to_df_raises_derivation_error_on_missing_json() -> None:
-    """_apply_series_to_df raises DerivationError when series_json is None."""
+def testapply_series_to_df_raises_derivation_error_on_missing_json() -> None:
+    """apply_series_to_df raises DerivationError when series_json is None."""
     # Arrange
     derived_df = pd.DataFrame({"age": [10, 20, 30]})
     exec_result = ExecutionResult(success=False, series_json=None, error="failed")
 
     # Act & Assert
     with pytest.raises(DerivationError, match="TEST_VAR"):
-        _apply_series_to_df("TEST_VAR", exec_result, derived_df)
+        apply_series_to_df("TEST_VAR", exec_result, derived_df)
 
 
 # ---------------------------------------------------------------------------

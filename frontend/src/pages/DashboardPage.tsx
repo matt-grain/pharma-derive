@@ -19,8 +19,11 @@ export function DashboardPage() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const { mutate: deleteWorkflow } = useDeleteWorkflow()
 
-  const active = workflows?.filter((w) => !(TERMINAL_STATUSES as readonly string[]).includes(w.status)) ?? []
-  const completed = workflows?.filter((w) => (TERMINAL_STATUSES as readonly string[]).includes(w.status)) ?? []
+  const sortedByLatest = [...(workflows ?? [])].sort(
+    (a, b) => (b.started_at ?? '').localeCompare(a.started_at ?? ''),
+  )
+  const active = sortedByLatest.filter((w) => !(TERMINAL_STATUSES as readonly string[]).includes(w.status))
+  const completed = sortedByLatest.filter((w) => (TERMINAL_STATUSES as readonly string[]).includes(w.status))
 
   return (
     <div className="p-8">

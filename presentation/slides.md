@@ -64,9 +64,11 @@ Raw CRF/EDC  -->  SDTM (standardized)  -->  ADaM (analysis-ready)  -->  TFLs
 ## Architecture
 
 ```
-  Streamlit UI (HITL approval gates)
+  React SPA (DAG viz, code review, HITL approval gates)
           |
-  Orchestration Engine (WorkflowFSM + DAG executor)
+  FastAPI + FastMCP (REST + MCP transports)
+          |
+  Orchestration Engine (PipelineInterpreter + PipelineFSM + DAG executor)
           |
   PydanticAI Agents (5 agents, typed I/O, async)
           |
@@ -77,7 +79,7 @@ Raw CRF/EDC  -->  SDTM (standardized)  -->  ADaM (analysis-ready)  -->  TFLs
   LLM API (Claude / Azure OpenAI / any)
 ```
 
-**Layered architecture** -- 19 import-linter contracts enforce boundaries
+**Layered architecture** -- 21 import-linter contracts enforce boundaries
 **No circular imports** -- domain is pure Python, agents depend on domain only
 
 <!-- Speaker notes: Four layers, strict dependency rules. Domain layer has zero framework dependencies -- pure dataclasses and Pydantic models. This means we can swap PydanticAI for another framework without touching domain logic. 19 import-linter contracts are enforced on every push. -->
@@ -195,7 +197,7 @@ Not a demo constraint -- the correct production architecture for pharma.
 | **3. Final Review** | All derivations done | Approve / reject specific variables |
 | **4. Audit Sign-off** | After Auditor | Sign off on compliance report |
 
-**Streamlit UI** with DB-backed approval state
+**React SPA** (primary) with DB-backed approval state via `POST /workflows/{id}/approve`
 Human feedback stored in long-term memory for future runs
 
 <!-- Speaker notes: The gates are positioned where human judgment adds the most value: ambiguous specs, unresolvable QC disputes, final quality assessment, and compliance sign-off. The workflow pauses and resumes -- approvals are persisted in the database, not held in memory. Human corrections feed back into the system: if a human changes a boundary condition, that correction is stored and surfaced to agents in future studies. -->
@@ -226,9 +228,9 @@ Satisfies 21 CFR Part 11 traceability requirements.
 | | Short-Term | Long-Term |
 |---|-----------|----------|
 | **Scope** | Single workflow run | Cross-run knowledge base |
-| **Storage** | JSON per run | SQLite (SQLAlchemy async) |
-| **Contains** | FSM state, intermediate outputs, pending approvals | Validated patterns, human feedback, QC history |
-| **Lifecycle** | Cleared on completion | Persists and grows |
+| **Storage** | SQLite `workflow_states` (per-step checkpoint) | SQLite (SQLAlchemy async) |
+| **Contains** | FSM state, DAG snapshot, spec path, pending approvals | Validated patterns, human feedback, QC history |
+| **Lifecycle** | Survives backend restarts; retained for audit + restart | Persists and grows |
 | **Retrieval** | By workflow_id | By variable type + spec similarity |
 
 **Before generating code:** agent tools query long-term memory for matching patterns. Matches injected as reference implementations -- context, not constraint.
@@ -279,20 +281,35 @@ The system is designed so that **doing the right thing is the path of least resi
 
 ## Production Path
 
-| Prototype | Production |
-|-----------|------------|
-| SQLite | PostgreSQL (same SQLAlchemy models) |
-| External Claude API | Azure OpenAI in Sanofi VNet |
-| Single process | Docker Compose (6 containers) |
-| Docker Compose | Kubernetes (same images, Helm chart) |
-| Single `guards.yaml` | ConfigMap per study |
+Three tiers. **Same code, same images, same SQLAlchemy models** -- only the surrounding infrastructure changes.
 
-**6 containers:** nginx, Streamlit, FastAPI, PostgreSQL, AgentLens, Grafana/Loki
+| Concern | Local / Laptop | Small-scale Prod | Large-scale Prod |
+|---|---|---|---|
+| **Use case** | Researcher exploration | Single-study team | Multi-study enterprise |
+| **Deploy** | `uv run uvicorn` | Docker Compose | Kubernetes + Helm |
+| **Database** | SQLite | PostgreSQL | PostgreSQL (managed) |
+| **LLM** | External Claude API | Azure OpenAI in VNet | Azure OpenAI in VNet |
+| **Scale** | 1 user | N backend replicas / nginx | Auto-scaled pods |
+| **Guards** | `guards.yaml` | `guards.yaml` | ConfigMap per study |
 
-**Backend is stateless** -- all state in PostgreSQL.
-N replicas behind nginx = horizontal scaling, zero code changes.
+**Backend is stateless** -- all state in PostgreSQL. Horizontal scale = add replicas. Zero code changes.
+See `ARCHITECTURE.md` §Scenario A (Docker Compose) and §Scenario B (Kubernetes) for full topologies.
 
-<!-- Speaker notes: The prototype runs locally. Production is Docker Compose with 6 service-separated containers. The migration path to Kubernetes is deployment-level only -- same container images, same database schema, same agent definitions. The backend is stateless by design, so scaling is just adding replicas. Guard configurations become per-study ConfigMaps in K8s, enabling different compliance levels per regulatory context. -->
+<!-- Speaker notes: Three tiers, not two. Tier 1 is the researcher laptop: uv + SQLite + external LLM API, everything in one process. Tier 2 is small-scale production: Docker Compose with PostgreSQL, real LLM endpoint inside the VNet, N stateless backend replicas behind nginx for a single study team. Tier 3 is enterprise: same container images deployed to Kubernetes with Helm, auto-scaled, per-study ConfigMaps for different regulatory contexts. The critical property is that tier promotion is deployment-only — no code changes, no schema changes, no agent re-definitions. This is enabled by the stateless backend and the repository pattern over SQLAlchemy. -->
+
+---
+
+## Resilience & Restart
+
+**Per-step checkpointing.** After every pipeline step, the interpreter fires a callback that persists the FSM state + ctx snapshot to `workflow_states`. A uvicorn reload or crash mid-run leaves a consistent, resumable record -- no silent loss.
+
+**Failure reason in the audit trail.** The `except` branch appends a `workflow_failed` record with the error, exception type, and failing step. The UI audit tab tells you *why* a run aborted, not just that it did.
+
+**Atomic restart.** `POST /workflows/{id}/rerun` starts a new run with the same spec (resolved from the historic row via persisted `spec_path`), then atomically deletes the old one -- DB row, in-memory state, and output files -- only *after* the new run has launched successfully.
+
+**Failed runs stay visible.** `list_workflow_ids` now reads from `_interpreters` (matching `is_known`) instead of `_active`, so failures don't vanish from the dashboard the moment the async task completes.
+
+<!-- Speaker notes: These are the operational bits that make a research prototype feel like a production system. Per-step checkpointing matters during iterative development -- hot-reload is common during agent prompt tuning, and losing a 2-minute CDISC run every time you touch a file is painful. The workflow_failed audit record is for the ops/QA audience: when a run fails they need to see the reason in the same place they review successes, not in scrollback. Atomic restart avoids orphan state during rerun -- old run only gets dropped after the new one successfully launches, so a bad spec path leaves the original untouched. The list_workflow_ids fix is the kind of bug you only notice after actually running a failing workflow in a real session -- found it during panel prep and fixed it the same day. -->
 
 ---
 
@@ -300,11 +317,11 @@ N replicas behind nginx = horizontal scaling, zero code changes.
 
 | Metric | Value |
 |--------|-------|
-| Tests passing | **148** |
+| Tests passing | **270** |
 | Coverage (core logic) | **85%** |
 | Pyright errors (strict mode) | **0** |
 | Ruff violations | **0** |
-| Import-linter contracts | **19/19** |
+| Import-linter contracts | **21/21** |
 | Custom pre-commit checks | **10** (AST-based) |
 | Dead code (vulture) | **0** |
 
@@ -349,6 +366,6 @@ and agents that **never see patient data**.
 
 <br/>
 
-**GitHub:** [repository link] | **148 tests** | **85% coverage** | **19 contracts**
+**GitHub:** [repository link] | **270 tests** | **85% coverage** | **21 contracts**
 
 <!-- Speaker notes: Close with the Rabelais quote -- it connects directly to the assignment. In pharma AI, "conscience" means building verification, oversight, and traceability into the architecture itself. The system is designed so that the safe path and the easy path are the same path. Thank the panel, open for questions. -->

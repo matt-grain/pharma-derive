@@ -6,6 +6,8 @@ from typing import Any  # Any: MCP protocol returns mixed JSON types
 
 from fastmcp import FastMCP
 
+from src.domain.enums import WorkflowStep
+
 mcp = FastMCP(
     name="cdde",
     instructions=(
@@ -46,16 +48,18 @@ async def get_workflow_status(workflow_id: str) -> dict[str, Any]:
     from src.api.dependencies import get_workflow_manager_from_app
 
     manager = get_workflow_manager_from_app()
-    orch = manager.get_orchestrator(workflow_id)
-    if orch is None:
+    if not manager.is_known(workflow_id):
         return {"error": f"Workflow {workflow_id} not found"}
-    fsm_state = str(orch.fsm.current_state_value or "unknown")
+    fsm = manager.get_fsm(workflow_id)
+    fsm_state = fsm.current_state_value if fsm is not None else WorkflowStep.UNKNOWN.value
+    ctx = manager.get_context(workflow_id)
+    dag = ctx.dag if ctx is not None else None
     return {
         "workflow_id": workflow_id,
         "status": fsm_state,
         "is_running": manager.is_running(workflow_id),
-        "derived_variables": list(orch.state.dag.nodes.keys()) if orch.state.dag else [],
-        "errors": orch.state.errors,
+        "derived_variables": list(dag.nodes.keys()) if dag is not None else [],
+        "errors": ctx.errors if ctx is not None else [],
     }
 
 

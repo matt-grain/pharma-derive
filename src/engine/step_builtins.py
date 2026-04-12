@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 async def _builtin_parse_spec(step: StepDefinition, ctx: PipelineContext) -> None:
     """Parse spec, load source data, generate synthetic CSV — mirrors orchestrator._step_spec_review."""
-    from src.domain.source_loader import load_source_data
+    from src.domain.source_loader import get_column_domain_map, load_source_data
     from src.domain.spec_parser import parse_spec
     from src.domain.synthetic import generate_synthetic
 
@@ -32,6 +32,7 @@ async def _builtin_parse_spec(step: StepDefinition, ctx: PipelineContext) -> Non
     source_df = load_source_data(ctx.spec)
     ctx.derived_df = source_df.copy()
     ctx.synthetic_csv = generate_synthetic(source_df, rows=ctx.spec.synthetic.rows).to_csv(index=False)
+    ctx.source_column_domains = get_column_domain_map(ctx.spec)
 
 
 async def _builtin_build_dag(step: StepDefinition, ctx: PipelineContext) -> None:

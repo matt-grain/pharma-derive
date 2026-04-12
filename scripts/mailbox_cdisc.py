@@ -178,14 +178,18 @@ RESPONSES: dict[tuple[str, str], dict[str, object]] = {
 
 
 if __name__ == "__main__":
-    print(f"CDISC ADSL auto-responder ({len(RESPONSES)} canned responses)...")
+    print(f"CDISC ADSL auto-responder ({len(RESPONSES)} canned responses) — idle timeout 30min...")
     empty = 0
-    while empty < 35:
+    while empty < 1800:
         pending = get_pending()
         if not pending:
             time.sleep(1)
             empty += 1
+            if empty > 0 and empty % 60 == 0:
+                print(f"  ...idle for {empty}s (HITL or workflow paused?)")
             continue
+        if empty > 0:
+            print(f"  [woke after {empty}s idle]")
         empty = 0
         for p in pending:
             rid = int(p["request_id"])
@@ -197,4 +201,4 @@ if __name__ == "__main__":
             else:
                 print(f"  #{rid}: {role:8s} / {var:10s} UNKNOWN")
         time.sleep(2)
-    print("Done.")
+    print("Done — idle timeout reached.")

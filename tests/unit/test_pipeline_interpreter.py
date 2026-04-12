@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
+from src.audit.trail import AuditTrail
 from src.domain.exceptions import CDDEError
-from src.domain.pipeline_models import StepDefinition, StepType, load_pipeline
-from src.engine.pipeline_interpreter import topological_sort
+from src.domain.pipeline_models import PipelineDefinition, StepDefinition, StepType, load_pipeline
+from src.engine.pipeline_context import PipelineContext
+from src.engine.pipeline_fsm import PipelineFSM
+from src.engine.pipeline_interpreter import PipelineInterpreter, topological_sort
 
 
 def test_topological_sort_linear_chain_preserves_order() -> None:
@@ -80,3 +85,82 @@ def test_load_default_pipeline_parses_without_error() -> None:
     assert "parse_spec" in step_ids
     assert "human_review" in step_ids
     assert "export" in step_ids
+
+
+async def test_interpreter_advances_fsm_per_step() -> None:
+    """FSM receives advance() for each step ID in execution order."""
+    # Arrange
+    steps = [
+        StepDefinition(id="first", type=StepType.BUILTIN, builtin="noop"),
+        StepDefinition(id="second", type=StepType.BUILTIN, builtin="noop", depends_on=["first"]),
+    ]
+    pipeline = PipelineDefinition(name="test_pipeline", steps=steps)
+    ctx = PipelineContext(workflow_id="test-wf", audit_trail=AuditTrail("test-wf"), llm_base_url="")
+    fsm = PipelineFSM("test-wf", [s.id for s in steps])
+
+    states_seen: list[str] = []
+    original_advance = fsm.advance
+
+    def tracking_advance(step_id: str) -> None:
+        states_seen.append(step_id)
+        original_advance(step_id)
+
+    fsm.advance = tracking_advance  # type: ignore[method-assign]
+
+    interpreter = PipelineInterpreter(pipeline, ctx, fsm)
+
+    # Act — patch executor registry so no real builtin logic runs
+    noop_executor = AsyncMock()
+    noop_executor.execute = AsyncMock()
+    with patch(
+        "src.engine.pipeline_interpreter.PipelineInterpreter._execute_step",
+        new=AsyncMock(),
+    ):
+        await interpreter.run()
+
+    # Assert
+    assert states_seen == ["first", "second"]
+    assert fsm.current_state_value == "second"
+
+
+async def test_interpreter_invokes_on_step_complete_for_every_step() -> None:
+    """Checkpoint callback is awaited once per step with the step id in execution order."""
+    # Arrange
+    steps = [
+        StepDefinition(id="first", type=StepType.BUILTIN, builtin="noop"),
+        StepDefinition(id="second", type=StepType.BUILTIN, builtin="noop", depends_on=["first"]),
+    ]
+    pipeline = PipelineDefinition(name="test_pipeline", steps=steps)
+    ctx = PipelineContext(workflow_id="test-wf", audit_trail=AuditTrail("test-wf"), llm_base_url="")
+    interpreter = PipelineInterpreter(pipeline, ctx)
+
+    checkpointed: list[str] = []
+
+    async def record_checkpoint(step_id: str) -> None:
+        checkpointed.append(step_id)
+
+    # Act
+    with patch(
+        "src.engine.pipeline_interpreter.PipelineInterpreter._execute_step",
+        new=AsyncMock(),
+    ):
+        await interpreter.run(on_step_complete=record_checkpoint)
+
+    # Assert
+    assert checkpointed == ["first", "second"]
+
+
+async def test_interpreter_without_fsm_runs_successfully() -> None:
+    """Interpreter with fsm=None completes without error (backward compatibility)."""
+    # Arrange
+    steps = [StepDefinition(id="only", type=StepType.BUILTIN, builtin="noop")]
+    pipeline = PipelineDefinition(name="test_pipeline", steps=steps)
+    ctx = PipelineContext(workflow_id="test-wf", audit_trail=AuditTrail("test-wf"), llm_base_url="")
+    interpreter = PipelineInterpreter(pipeline, ctx)  # fsm=None by default
+
+    # Act & Assert — no AttributeError on None.advance()
+    with patch(
+        "src.engine.pipeline_interpreter.PipelineInterpreter._execute_step",
+        new=AsyncMock(),
+    ):
+        await interpreter.run()  # must not raise

@@ -14,18 +14,18 @@ from src.api.dependencies import (
 from src.api.schemas import (
     AuditRecordOut,
     DAGNodeOut,
+    SourceColumnOut,
     WorkflowCreateRequest,
     WorkflowCreateResponse,
     WorkflowResultResponse,
     WorkflowStatusResponse,
 )
 from src.config.settings import get_settings
-from src.domain.models import AgentName, AuditAction
-from src.persistence.database import init_db
-from src.persistence.workflow_state_repo import WorkflowStateRepository
+from src.domain.enums import WorkflowStep
 
 if TYPE_CHECKING:
     from src.domain.dag import DerivationDAG
+    from src.engine.pipeline_context import PipelineContext
 
 router = APIRouter(prefix="/api/v1/workflows", tags=["workflows"])
 
@@ -46,7 +46,7 @@ async def start_workflow(
     )
     return WorkflowCreateResponse(
         workflow_id=wf_id,
-        status="running",
+        status=WorkflowStep.RUNNING.value,
         message="Workflow started",
     )
 
@@ -68,32 +68,32 @@ async def approve_workflow(workflow_id: str, manager: WorkflowManagerDep) -> Wor
     if event is None:
         raise HTTPException(status_code=409, detail="Workflow is not awaiting approval")
 
-    ctx.audit_trail.record(
-        variable="",
-        action=AuditAction.HUMAN_APPROVED,
-        agent=AgentName.HUMAN,
-        details={"gate": "human_review"},
-    )
     event.set()
     return _build_status_response(workflow_id, manager)
 
 
 @router.delete("/{workflow_id}", status_code=204)
 async def delete_workflow(workflow_id: str, manager: WorkflowManagerDep) -> None:
-    """Delete a workflow from history. Removes DB state and output files."""
+    """Delete a workflow from history. In-memory state, DB row, and output files."""
     if not manager.is_known(workflow_id):
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
-    session_factory = await init_db()
-    async with session_factory() as session:
-        state_repo = WorkflowStateRepository(session)
-        await manager.delete_workflow(workflow_id, state_repo)
-        await session.commit()
-    # Clean up output files
-    output_dir = Path(get_settings().output_dir)
-    for suffix in ("_audit.json", "_adam.csv", "_adam.parquet"):
-        path = output_dir / f"{workflow_id}{suffix}"
-        if path.exists():
-            path.unlink()
+    await manager.delete_workflow(workflow_id)
+
+
+@router.post("/{workflow_id}/rerun", response_model=WorkflowCreateResponse, status_code=202)
+async def rerun_workflow(workflow_id: str, manager: WorkflowManagerDep) -> WorkflowCreateResponse:
+    """Start a new workflow using the same spec as an existing one."""
+    if not manager.is_known(workflow_id):
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
+    try:
+        new_id = await manager.rerun_workflow(workflow_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return WorkflowCreateResponse(
+        workflow_id=new_id,
+        status=WorkflowStep.RUNNING.value,
+        message=f"Restarted {workflow_id} as {new_id} (old run deleted)",
+    )
 
 
 @router.get("/{workflow_id}", response_model=WorkflowStatusResponse, status_code=200)
@@ -189,11 +189,12 @@ async def get_workflow_dag(
         dag = ctx.dag
         if dag is None:
             return []
-        return [_dag_node_out(dag, var) for var in dag.execution_order]
+        return [_dag_node_out(dag, var, ctx) for var in dag.execution_order]
 
     # Fallback: load from persisted dag_nodes in DB history
     hist = manager.get_historic(workflow_id)
     if hist is not None and hist.dag_nodes:
+        derived_names = set(hist.dag_nodes.keys())
         return [
             DAGNodeOut(
                 variable=var,
@@ -204,6 +205,11 @@ async def get_workflow_dag(
                 qc_verdict=node.get("qc_verdict"),  # type: ignore[arg-type]
                 approved_code=node.get("approved_code"),  # type: ignore[arg-type]
                 dependencies=list(node.get("dependencies", [])),  # type: ignore[arg-type]
+                source_columns=_build_source_cols(
+                    rule_source_columns=list(node.get("source_columns", [])),  # type: ignore[arg-type]
+                    derived_names=derived_names,
+                    column_domain_map=hist.source_column_domains,
+                ),
             )
             for var, node in hist.dag_nodes.items()
         ]
@@ -213,10 +219,30 @@ async def get_workflow_dag(
     return []
 
 
-def _dag_node_out(dag: DerivationDAG, var: str) -> DAGNodeOut:
+def _build_source_cols(
+    rule_source_columns: list[str],
+    derived_names: set[str],
+    column_domain_map: dict[str, str],
+) -> list[SourceColumnOut]:
+    """Build SourceColumnOut list from rule source columns, skipping derived variables.
+
+    Shared by the live path (ctx.source_column_domains) and the historic path
+    (hist.source_column_domains) so both produce consistent output.
+    """
+    return [
+        SourceColumnOut(name=col, domain=column_domain_map.get(col, ""))
+        for col in rule_source_columns
+        if col not in derived_names
+    ]
+
+
+def _dag_node_out(dag: DerivationDAG, var: str, ctx: PipelineContext | None = None) -> DAGNodeOut:
     """Convert a single DAG node to its API schema."""
     node = dag.get_node(var)
     qc_verdict = node.qc_verdict.value if node.qc_verdict is not None else None
+    derived_names = set(dag.nodes.keys())
+    domain_map = ctx.source_column_domains if ctx is not None else {}
+    source_cols = _build_source_cols(node.rule.source_columns, derived_names, domain_map)
     return DAGNodeOut(
         variable=var,
         status=node.status.value,
@@ -226,6 +252,7 @@ def _dag_node_out(dag: DerivationDAG, var: str) -> DAGNodeOut:
         qc_verdict=qc_verdict,
         approved_code=node.approved_code,
         dependencies=dag.get_dependencies(var),
+        source_columns=source_cols,
     )
 
 
@@ -242,6 +269,8 @@ def _build_status_response(workflow_id: str, manager: WorkflowManagerDep) -> Wor
             status=status,
             study=ctx.spec.metadata.study if ctx.spec else None,
             awaiting_approval=awaiting,
+            started_at=manager.get_started_at(workflow_id),
+            completed_at=manager.get_completed_at(workflow_id),
             derived_variables=result.derived_variables if result else list(ctx.dag.nodes.keys()) if ctx.dag else [],
             errors=result.errors if result else ctx.errors,
         )
@@ -253,8 +282,10 @@ def _build_status_response(workflow_id: str, manager: WorkflowManagerDep) -> Wor
             workflow_id=workflow_id,
             status=hist.fsm_state,
             study=hist.study,
+            started_at=manager.get_started_at(workflow_id) or hist.started_at,
+            completed_at=manager.get_completed_at(workflow_id) or hist.completed_at,
             derived_variables=hist.derived_variables,
             errors=hist.errors,
         )
 
-    return WorkflowStatusResponse(workflow_id=workflow_id, status="unknown")
+    return WorkflowStatusResponse(workflow_id=workflow_id, status=WorkflowStep.UNKNOWN.value)

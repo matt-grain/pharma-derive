@@ -29,6 +29,11 @@ export interface AuditRecord {
   details: Record<string, string | number | boolean | null>
 }
 
+export interface SourceColumn {
+  name: string    // e.g. "AGE", "RFXSTDTC"
+  domain: string  // e.g. "dm", "ex", "ds", "sv" (lowercase CDISC domain code)
+}
+
 export interface DAGNode {
   variable: string
   status: string
@@ -38,6 +43,7 @@ export interface DAGNode {
   qc_verdict: string | null
   approved_code: string | null
   dependencies: string[]
+  source_columns: SourceColumn[]  // SDTM columns this derivation reads; empty array for old workflows
 }
 
 export interface SpecItem {

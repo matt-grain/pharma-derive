@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, cast  # cast: pyreadstat returns untyped objects
 
 import pandas as pd
 import pyreadstat  # type: ignore[import-untyped]
@@ -55,3 +55,38 @@ def load_source_data(spec: TransformationSpec) -> pd.DataFrame:
 def get_source_columns(df: pd.DataFrame) -> set[str]:
     """Extract column names from a DataFrame as a set."""
     return set(df.columns.tolist())
+
+
+def get_column_domain_map(spec: TransformationSpec) -> dict[str, str]:
+    """Return {column_name: domain_code} by scanning each domain file's column headers.
+
+    Reads metadata only — does not load patient data. Later domain files override earlier
+    ones for duplicate column names (should not occur in well-structured SDTM data).
+    """
+    fmt = spec.source.format.lower()
+    base_path = Path(spec.source.path)
+    if not base_path.exists():
+        msg = f"Source data path not found: {base_path}"
+        raise FileNotFoundError(msg)
+
+    mapping: dict[str, str] = {}
+    if fmt == "csv":
+        for domain in spec.source.domains:
+            file_path = base_path / f"{domain}.csv"
+            if not file_path.exists():
+                continue  # tolerate missing domain files gracefully
+            df_header = pd.read_csv(file_path, nrows=0)
+            for col in df_header.columns:
+                mapping[col] = domain
+    elif fmt == "xpt":
+        for domain in spec.source.domains:
+            file_path = base_path / f"{domain}.xpt"
+            if not file_path.exists():
+                continue  # tolerate missing domain files gracefully
+            _, meta = pyreadstat.read_xport(str(file_path), metadataonly=True)  # type: ignore[no-untyped-call]
+            for col in cast("list[str]", meta.column_names):  # type: ignore[reportUnknownMemberType]
+                mapping[col] = domain
+    else:
+        msg = f"Unsupported source format: {fmt}"
+        raise ValueError(msg)
+    return mapping

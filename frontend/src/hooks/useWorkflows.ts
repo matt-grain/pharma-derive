@@ -109,3 +109,15 @@ export function useDeleteWorkflow() {
     },
   })
 }
+
+export function useRerunWorkflow() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.rerunWorkflow(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workflows'] })
+    },
+    // eslint-disable-next-line no-alert -- using native alert until a toast system is added
+    onError: (err: Error) => { alert(`Cannot rerun this workflow\n\n${err.message}`) },
+  })
+}

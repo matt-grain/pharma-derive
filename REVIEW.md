@@ -1,25 +1,30 @@
 # Architecture Review — CDDE (Clinical Data Derivation Engine)
 
-**Date:** 2026-04-10
+**Date:** 2026-04-11
+**Last fixed:** 2026-04-12 — 13/14 fix units resolved (1 partial: models.py 1L over hard limit)
 **Project type:** Python/FastAPI backend + Vite/React frontend
+**Branch:** feat/yaml-pipeline (post Phase 14 — YAML-driven pipeline)
+**Previous review:** docs/phase4/REVIEW.md (2026-04-10)
+**Fix log:** REVIEW_FIX_LOG.md
 
 ## Executive Summary
 
 | Category | Conformance | Critical | Warnings | Info |
 |----------|------------|----------|----------|------|
-| Architecture & SoC | Medium | 4 | 5 | 5 |
-| Typing & Style | Medium | 2 | 7 | 5 |
-| State & Enums | Low | 6 | 8 | 2 |
-| Testing | Low | 3 | 5 | 0 |
-| Documentation & Debt | High | 0 | 3 | 3 |
+| Architecture & SoC | Medium | 4 | 5 | 7 |
+| Typing & Style | Medium | 5 | 7 | 5 |
+| State & Enums | Medium | 5 | 4 | 4 |
+| Testing | Medium | 6 | 5 | 3 |
+| Documentation & Debt | Medium | 7 | 5 | 2 |
 
 ### Top Critical Findings
 
-1. **Enum discipline** — Raw strings `"review"`, `"human_approved"`, `"human"`, `"unknown"`, `"running"` used where StrEnum members exist. AuditRecord.action/agent typed as `str` not enum. (State & Enums)
-2. **Frontend has zero tests** — 29 React components/pages/hooks with no Vitest, no RTL, no test files. (Testing)
-3. **Orchestrator `run()` untested** — The core execution path has no unit test. Only constructor/property tests exist. (Testing)
-4. **WorkflowManager bypasses repositories** — Direct SQLAlchemy queries in API layer via deferred imports, circumventing the repository pattern. (Architecture)
-5. **API endpoint missing `response_model`** — POST /approve has no schema enforcement. (Architecture)
+1. **File/class size violations** — 6 files over 200 lines, 2 classes over 150 lines (`DerivationOrchestrator` 230L, `WorkflowManager` 211L). Most severe: `derivation_runner.py` at 287 lines.
+2. **API schemas use bare `str` for enum-valued fields** — 5 `status` fields in `schemas.py` + mirrored in frontend `types/api.ts`. No type safety at the API boundary.
+3. **Dead code: old orchestrator** — `DerivationOrchestrator` + `WorkflowFSM` + `orchestrator_helpers.py` are unused by the pipeline path but still compiled and maintained.
+4. **`PipelineFSM` uses raw string literals** — `"created"`, `"completed"`, `"failed"` hardcoded, no transition guards, not a true FSM.
+5. **Frontend has zero tests** — 35 source files with no Vitest/RTL test suite.
+6. **`delete_workflow` router owns a DB session lifecycle** — direct `init_db()` + `session.commit()` in a router endpoint.
 
 ## Detailed Findings
 
@@ -27,131 +32,140 @@
 
 | Severity | Finding | File(s) | Rule Violated | Recommendation |
 |----------|---------|---------|---------------|----------------|
-| 🔴 | WorkflowManager issues raw SQLAlchemy queries (load_history, delete_workflow) bypassing repositories | `src/api/workflow_manager.py:50-56,137-143` | Repository pattern | Route through WorkflowStateRepository |
-| 🔴 | POST /approve missing response_model | `src/api/routers/workflows.py:58` | Explicit response_model | Add `response_model=WorkflowStatusResponse` |
-| 🔴 | GET /adam missing response_model (FileResponse exempt but inconsistent) | `src/api/routers/workflows.py:166` | Explicit response_model | Add `response_class=FileResponse` |
-| 🔴 | API layer holds DerivationOrchestrator references directly | `src/api/workflow_manager.py` | Layered architecture | Consider thin WorkflowService interface |
-| 🟡 | API schemas use raw `str` for enum fields (status, action, agent, qc_verdict) | `src/api/schemas.py` | Enum discipline | Use StrEnum types |
-| 🟡 | CORS defaults to `"*"` | `src/config/settings.py:28` | Security | Default to localhost |
-| 🟡 | Flat Settings class — secrets alongside structural config | `src/config/settings.py` | Separate settings per concern | Split into DatabaseSettings, LLMSettings, APISettings |
-| 🟡 | GET /workflows/ returns unbounded list — no pagination | `src/api/routers/workflows.py:52-55` | Pagination required | Add limit/offset params |
-| 🟡 | GET /specs/ reads all YAML from disk per request — no caching | `src/api/routers/specs.py:17-38` | Performance | Add lru_cache or background refresh |
-| 🔵 | factory.py at src/ root — ambiguous layer ownership | `src/factory.py` | Module cohesion | Move to src/engine/ |
-| 🔵 | WorkflowDetailPage 163 lines — above 50-line page rule | `frontend/src/pages/WorkflowDetailPage.tsx` | Thin pages | Extract WorkflowDetailView feature component |
-| 🔵 | Frontend API client uses raw Error — no typed ApiError class | `frontend/src/lib/api.ts` | Typed error classes | Define ApiError with statusCode |
-| 🔵 | Dashboard filters use inline raw string arrays `['completed', 'failed']` | `frontend/src/pages/DashboardPage.tsx:13` | Typed constants | Import TERMINAL_STATES from status.ts |
-| 🔵 | DAGView uses inline status string literals for animated edges | `frontend/src/components/DAGView.tsx:45` | Centralize status checks | Add isActiveStatus() to status.ts |
+| 🔴 | `delete_workflow` router creates DB session, instantiates repo, commits — business logic in router | `workflows.py:86-90` | No business logic in routers | Push session lifecycle into `WorkflowManager.delete_workflow` |
+| 🔴 | `WorkflowCreateRequest` is the only schema without `frozen=True` | `schemas.py:8` | API schemas use frozen=True | Add `frozen=True` |
+| 🔴 | `list_workflows` and `get_workflow_audit` return unbounded lists — no pagination | `workflows.py:54,150` | Always paginate list endpoints | Add skip/limit params |
+| 🔴 | `.importlinter` has no `api-no-persistence` contract — router's direct persistence import uncaught by CI | `.importlinter` | Import contracts must cover all layers | Add `api-no-persistence` contract |
+| 🟡 | Old orchestrator still imported in `factory.py` and `workflow_manager.py` (TYPE_CHECKING shim) — dead code | `factory.py:11`, `workflow_manager.py:22` | YAGNI — no dead code paths | Remove or deprecate |
+| 🟡 | `allow_methods=["*"]` and `allow_headers=["*"]` in CORS | `app.py:58-59` | Restrict CORS methods/headers | Pin to actual verbs used |
+| 🟡 | `WorkflowDetailPage.tsx` is 211 lines | `WorkflowDetailPage.tsx` | Pages under 200 lines | Extract sub-components |
+| 🟡 | `step_builtins.py` deps builder uses string dispatch — new agents require editing a centralized function | `step_builtins.py:103-124` | Open/closed principle | Consider decorator or per-agent registration |
+| 🟡 | All TanStack Query hooks in a single `useWorkflows.ts` (11 hooks) — god hook module | `useWorkflows.ts` | Features self-contained | Split by domain concern |
+| 🔵 | `specs.py` router has inline YAML parsing logic | `specs.py:17-39` | No business logic in routers | Extract to service/helper |
+| 🔵 | `.importlinter` has stale comments about Phase 4 contracts being "commented out" | `.importlinter:11-13` | Documentation accuracy | Update comments |
 | 🔵 | Domain and agent layers are clean — no import violations detected | All domain/agent files | N/A — compliant | ✅ |
+| 🔵 | Pipeline engine properly layered — domain models in domain/, executors in engine/ | pipeline_*.py, step_*.py | N/A — compliant | ✅ |
+| 🔵 | YAML agent configs fully externalized — zero hardcoded agent paths in src/ | All src/ files | N/A — compliant | ✅ |
+| 🔵 | 3 pipeline configs demonstrate platform flexibility | config/pipelines/*.yaml | N/A — compliant | ✅ |
+| 🔵 | Config-driven agent declarations in pipeline YAML (coder_agent, qc_agent, debugger_agent) | clinical_derivation.yaml | N/A — compliant | ✅ |
 
 ### 2. Typing & Style
 
 | Severity | Finding | File(s) | Rule Violated | Recommendation |
 |----------|---------|---------|---------------|----------------|
-| 🔴 | DerivationOrchestrator.__init__ has 6 params | `src/engine/orchestrator.py:45-53` | Max 5 params | Extract OrchestratorConfig dataclass |
-| 🔴 | verify_derivation (7 params), _compare_outputs (7), _handle_mismatch (7) | `src/verification/comparator.py`, `src/engine/derivation_runner.py` | Max 5 params | Group into VerificationRequest dataclass |
-| 🟡 | `from __future__ import annotations` missing from 5 __init__.py files | `src/persistence/__init__.py`, `src/agents/tools/__init__.py`, etc. | Required in every .py file | Add to all |
-| 🟡 | `Any` used without justification comment in 5 files | `src/domain/synthetic.py`, `executor.py`, `comparator.py`, `base_repo.py`, `spec_parser.py` | Any needs comment | Add inline justification |
-| 🟡 | useEffect in DAGView has "what" comment not "why" comment | `frontend/src/components/DAGView.tsx:97` | WHY comments on useEffect | Explain why effect is needed |
-| 🟡 | _SAFE_BUILTINS includes `print` — contradicts no-print rule | `src/agents/tools/sandbox.py:36` | No print in production | Remove from sandbox builtins |
-| 🔵 | tsconfig.app.json has strict:true, noUncheckedIndexedAccess — exemplary | `frontend/tsconfig.app.json` | N/A — compliant | ✅ |
-| 🔵 | All component props follow `<Name>Props` convention | `frontend/src/components/*.tsx` | N/A — compliant | ✅ |
-| 🔵 | No bare `any` in TypeScript files | `frontend/src/` | N/A — compliant | ✅ |
-| 🔵 | All Python functions have return type annotations | `src/**/*.py` | N/A — compliant | ✅ |
-| 🔵 | All # type: ignore / # noqa have justification comments | `src/**/*.py` | N/A — compliant | ✅ |
+| 🔴 | `except Exception` swallowed silently — no re-raise, destroys debugging info | `workflow_manager.py:124` | No bare except without re-raise | Re-raise or log as intentional with justification |
+| 🔴 | `except Exception` swallowed in old orchestrator — error absorbed into state.errors | `orchestrator.py:122` | Catch specific exceptions | Narrow to CDDEError |
+| 🔴 | `except Exception` swallowed in Streamlit UI | `ui/pages/workflow.py:46` | No bare except without re-raise | Log with logger.exception before swallowing |
+| 🔴 | `WorkflowManager` class is 211 lines (limit 150) | `workflow_manager.py` | Class under 150 lines | Extract serializer + registry |
+| 🔴 | `DerivationOrchestrator` class is 230 lines (limit 150) | `orchestrator.py` | Class under 150 lines | Extract step helpers + persisters |
+| 🟡 | 8 functions with 6+ parameters in `derivation_runner.py` | `derivation_runner.py` | Max 5 function params | Introduce `DerivationRunContext` dataclass |
+| 🟡 | `verify_derivation` + `_compare_outputs` have 7 params each | `comparator.py` | Max 5 function params | Introduce `ComparisonRequest` dataclass |
+| 🟡 | `derivation_runner.py` is 287 lines | `derivation_runner.py` | File under 200 lines | Split debug logic to `debug_runner.py` |
+| 🟡 | `orchestrator.py` is 282 lines | `orchestrator.py` | File under 200 lines | Extract collaborators |
+| 🟡 | `workflows.py` is 260 lines | `workflows.py` | File under 200 lines | Extract helpers to presenter module |
+| 🟡 | `models.py` is 254 lines | `models.py` | File under 200 lines | Split enums to `enums.py` |
+| 🟡 | `workflow_manager.py` is 251 lines | `workflow_manager.py` | File under 200 lines | Follows from class split |
+| 🔵 | 9 `__init__.py` files missing `from __future__ import annotations` | Various `__init__.py` | Future annotations in every file | Add to all |
+| 🔵 | All functions have complete type annotations | All src/*.py | N/A — compliant | ✅ |
+| 🔵 | tsconfig.app.json has strict: true + noUncheckedIndexedAccess: true | tsconfig.app.json | N/A — compliant | ✅ |
+| 🔵 | Zero `any` in frontend, zero `print()` in src/ | All files | N/A — compliant | ✅ |
+| 🔵 | All `# type: ignore` and `# noqa` have inline justifications | All files | N/A — compliant | ✅ |
 
 ### 3. State Management & Enums
 
 | Severity | Finding | File(s) | Rule Violated | Recommendation |
 |----------|---------|---------|---------------|----------------|
-| 🔴 | Raw string `"review"` in FSM state check | `src/engine/orchestrator.py:80` | Use WorkflowStep.REVIEW | Replace with enum member |
-| 🔴 | Raw string `action="human_approved"` — no AuditAction enum member | `src/engine/orchestrator.py:84` | Missing enum member | Add AuditAction.HUMAN_APPROVED |
-| 🔴 | Raw string `agent="human"` — no AgentName enum member | `src/engine/orchestrator.py:84` | Missing enum member | Add AgentName.HUMAN |
-| 🔴 | AuditRecord.action and .agent typed as `str` not enum | `src/domain/models.py:202-203` | Enum discipline | Narrow to AuditAction / AgentName |
-| 🔴 | `WorkflowStep.COMPLETED.value` unwrapped unnecessarily | `src/engine/orchestrator_helpers.py:60` | Compare enum directly | Drop .value |
-| 🔴 | Dynamic f-string `f"fail_from_{self.current_state_value}"` — fragile | `src/domain/workflow_fsm.py:86` | Type-safe FSM transitions | Map via WorkflowStep enum first |
-| 🟡 | All API schema status/verdict fields are bare `str` | `src/api/schemas.py` | Enum at boundary | Use StrEnum types |
-| 🟡 | `status="running"` sentinel — no enum member exists | `src/api/routers/workflows.py:47` | No string sentinels | Use real FSM state or add enum |
-| 🟡 | Multiple `"unknown"` fall-through sentinels | Various API routers | No string sentinels | Add WorkflowStep.UNKNOWN or raise |
-| 🟡 | QCVerdict.MATCH.value unwrap in Streamlit UI | `src/ui/pages/workflow.py:101,114` | Compare directly | Drop .value |
-| 🟡 | TERMINAL_STATES duplicated across 3 frontend files | hooks, DashboardPage, WorkflowDetailPage | DRY | Single export from status.ts |
-| 🟡 | WorkflowStatus and WorkflowStep overlap (completed, failed) | `src/domain/workflow_models.py`, `models.py` | Single source of truth | Collapse into WorkflowStep |
-| 🟡 | AuditTrail.record() accepts any string — enum not enforced | `src/audit/trail.py:21-26` | Enum discipline | Narrow params to enum types |
-| 🟡 | Frontend status.ts missing several WorkflowStep values | `frontend/src/lib/status.ts` | Complete mapping | Add created, spec_review, dag_built, etc. |
-| 🔵 | Engine layer enum usage (derivation_runner, comparator) is fully compliant | Business logic files | N/A — compliant | ✅ |
-| 🔵 | TanStack Query used correctly for all server state | `frontend/src/hooks/useWorkflows.ts` | N/A — compliant | ✅ |
+| 🔴 | 5 API schemas have `status: str` instead of StrEnum | `schemas.py:15,21,33,59,120` | Use StrEnum for fixed value sets | Type as WorkflowStep/WorkflowStatus |
+| 🔴 | Frontend `types/api.ts` mirrors bare `string` for all status/verdict/type fields | `types/api.ts` | Use as const or string unions | Define typed constants |
+| 🔴 | `PipelineFSM` uses raw string literals and has no transition guards | `pipeline_fsm.py:16,29,33,38` | FSM must use enum members | Use WorkflowStep enum, add transition map |
+| 🔴 | `workflow_manager.py` passes raw `"failed"` to state_repo.save | `workflow_manager.py:122` | No raw string for FSM states | Use fsm.current_state_value after fail() |
+| 🔴 | Router returns `status="running"` and `status="unknown"` — not enum members | `workflows.py:49,260` | No string sentinels | Add to WorkflowStep or use existing members |
+| 🟡 | `SpecsPage.tsx` stores fetched YAML content in useState instead of TanStack Query | `SpecsPage.tsx:21` | No server data in useState | Extract useSpecContent hook |
+| 🟡 | `PipelineStepOut.type` is `str` even though `StepType` StrEnum exists | `schemas.py:100` | Use StrEnum at boundary | Type as StepType |
+| 🟡 | `AuditRecordOut.action/agent` are bare `str` (union with enum is a known compromise) | `schemas.py:45-46` | Enum discipline | Document the compound form explicitly |
+| 🟡 | `STATUS_COLOR_MAP` accepts arbitrary strings with silent gray fallback | `lib/status.ts:8` | Exhaustive type checking | Type map with enum union keys |
+| 🔵 | No TypeScript `enum` keyword used — project correctly uses `as const` patterns | Frontend | N/A — compliant | ✅ |
+| 🔵 | All domain enums use StrEnum properly (10 enums in models.py) | `models.py` | N/A — compliant | ✅ |
+| 🔵 | `StepType` StrEnum correctly defined and used in pipeline models | `pipeline_models.py` | N/A — compliant | ✅ |
+| 🔵 | All server state managed through TanStack Query hooks | `useWorkflows.ts` | N/A — compliant | ✅ |
 
 ### 4. Testing Quality
 
 | Severity | Finding | File(s) | Rule Violated | Recommendation |
 |----------|---------|---------|---------------|----------------|
-| 🔴 | Frontend has zero tests — no Vitest, no RTL | `frontend/` | Every module needs tests | Add Vitest + @testing-library/react |
-| 🔴 | orchestrator_helpers.py has no test file | `src/engine/orchestrator_helpers.py` | Every module gets tests | Create test_orchestrator_helpers.py |
-| 🔴 | Orchestrator.run() completely untested | `tests/unit/test_orchestrator.py` | Happy + error path per function | Test with TestModel/FunctionModel |
-| 🟡 | WorkflowManager: 4/9 public methods untested | `tests/unit/test_workflow_manager.py` | Coverage gaps | Add load_history, delete, is_known tests |
-| 🟡 | 3/7 API endpoints untested (approve, delete, list) | `tests/unit/test_api.py` | Every endpoint covered | Add endpoint tests |
-| 🟡 | FSM tests only one invalid transition — need full matrix | `tests/unit/test_workflow_fsm.py` | All invalid transitions tested | Parametrize all (state, invalid_event) pairs |
-| 🟡 | pytest.raises without match= in 4 locations | Various test files | Specific exception matching | Add match= patterns |
-| 🟡 | src/ui/ (Streamlit) has zero tests | `src/ui/` | Module test coverage | Document as waived or add smoke tests |
-
-**Testing Positives:**
-- AAA pattern: 401 comment occurrences across 167 tests — exceptionally consistent
-- Sandbox security tests: dedicated tests for import/open/eval/exec blocking
-- FSM fail transitions: fully parametrized across all states
-- conftest fixtures: well-structured factories prevent magic data
+| 🔴 | Frontend has zero test files — 35 source files completely untested | `frontend/src/` | Every module needs tests | Add Vitest + RTL |
+| 🔴 | `PipelineFSM` has zero invalid-transition tests — no guards verified | `test_pipeline_fsm.py` | All FSM transitions tested (valid AND invalid) | Add invalid transition tests |
+| 🔴 | 2 bare `pytest.raises(ValidationError)` without `match=` | `test_models.py:30,126` | pytest.raises must have match= | Add match patterns |
+| 🔴 | `step_builtins.py` has no dedicated test file — 4 functions untested in isolation | No test file | Every module gets tests | Create `test_step_builtins.py` |
+| 🔴 | `pipeline_context.py` has no dedicated test file | No test file | Every module gets tests | Create `test_pipeline_context.py` |
+| 🔴 | `factory.py` has no test file — factory functions untested | No test file | Every module gets tests | Create `test_factory.py` |
+| 🟡 | `get_workflow_audit` and `get_workflow_dag` endpoints have no tests | `workflows.py:151-232` | Every endpoint tested | Add to test_api.py |
+| 🟡 | `test_logging.py` tests only assert "no exception" — no log output assertions | `test_logging.py` | Meaningful assertions | Capture and assert log output |
+| 🟡 | `test_mcp.py` has only 2 tests, no error paths | `test_mcp.py` | Happy + error path per method | Add error path tests |
+| 🟡 | `test_pipeline_fsm.py` all happy-path, no invalid-advance tests | `test_pipeline_fsm.py` | FSM invalid transitions tested | Add failure tests |
+| 🟡 | `test_pipeline_scenarios.py` has no error-path tests for malformed YAML | `test_pipeline_scenarios.py` | Error paths tested | Add invalid pipeline tests |
+| 🔵 | AAA pattern used consistently — 522 markers across 26 files | All test files | N/A — compliant | ✅ |
+| 🔵 | Test naming follows `test_<action>_<scenario>_<expected>` spec pattern | All test files | N/A — compliant | ✅ |
+| 🔵 | conftest.py provides quality factory fixtures | `conftest.py` | N/A — compliant | ✅ |
 
 ### 5. Documentation & Cognitive Debt
 
 | Severity | Finding | File(s) | Rule Violated | Recommendation |
 |----------|---------|---------|---------------|----------------|
-| 🟡 | CORS wildcard `"*"` as default | `src/config/settings.py:28` | Security | Default to localhost |
-| 🟡 | 3 files over 200 lines: orchestrator (269), workflows router (256), models (249) | Various | Module size | Split enums to enums.py, extract router helpers |
-| 🟡 | No Alembic — schema via create_all() only | `src/persistence/database.py` | Migration management | Add Alembic for production |
-| 🔵 | Zero TODO/FIXME/HACK comments | All files | N/A — compliant | ✅ |
-| 🔵 | All 42 type:ignore/noqa have inline justification | All files | N/A — compliant | ✅ |
-| 🔵 | ARCHITECTURE.md has all 7 required sections | `/ARCHITECTURE.md` | N/A — compliant | ✅ |
-| 🔵 | decisions.md has 9 well-structured ADRs | `/decisions.md` | N/A — compliant | ✅ |
-| 🔵 | Dependencies properly pinned with >=X,<N+1 bounds | `pyproject.toml` | N/A — compliant | ✅ |
-| 🔵 | Both lockfiles committed (uv.lock, package-lock.json) | Root | N/A — compliant | ✅ |
+| 🔴 | `derivation_runner.py` is 287 lines | `derivation_runner.py` | File under 200 lines | Split debug logic |
+| 🔴 | `orchestrator.py` is 282 lines + class 230 lines | `orchestrator.py` | File/class limits | Extract or delete (dead code) |
+| 🔴 | `workflows.py` is 260 lines | `workflows.py` | File under 200 lines | Extract helpers |
+| 🔴 | `models.py` is 254 lines | `models.py` | File under 200 lines | Split enums |
+| 🔴 | `workflow_manager.py` is 251 lines + class 211 lines | `workflow_manager.py` | File/class limits | Extract serializer |
+| 🔴 | Dead code: old orchestrator + WorkflowFSM + orchestrator_helpers unused by pipeline path | `orchestrator.py`, `workflow_fsm.py`, `orchestrator_helpers.py` | YAGNI | Confirm dead, then delete |
+| 🔴 | `WorkflowDetailPage.tsx` is 211 lines | `WorkflowDetailPage.tsx` | File under 200 lines | Extract sub-components |
+| 🟡 | `run()` method is 39 lines, `get_workflow_result` 37 lines, several others 31-35 lines | Various | Function under 30 lines | Extract sub-functions |
+| 🟡 | CORS allow_methods/allow_headers wildcard | `app.py:58-59` | Restrict CORS | Pin to actual verbs |
+| 🟡 | `DataTab.tsx` is 200 lines with 4 items in one file | `DataTab.tsx` | File under 200 lines | Extract DatasetPanel |
+| 🟡 | `COMPOSITION_LAYER.md` not cross-referenced from ARCHITECTURE.md | `docs/COMPOSITION_LAYER.md` | Docs findable | Add cross-reference |
+| 🟡 | No Alembic — uses create_all() (known, accepted gap) | `database.py` | Migration tooling | Document as ADR |
+| 🔵 | ARCHITECTURE.md has all 7 required sections + pipeline engine section | `ARCHITECTURE.md` | N/A — compliant | ✅ |
+| 🔵 | decisions.md has 9 well-structured ADRs | `decisions.md` | N/A — compliant | ✅ |
+| 🔵 | Zero TODO/FIXME/HACK, zero bare type:ignore/noqa | All files | N/A — compliant | ✅ |
+| 🔵 | All lockfiles committed (uv.lock + package-lock.json) | Root | N/A — compliant | ✅ |
+| 🔵 | Pipeline docs exist: COMPOSITION_LAYER.md, config/README.md, config/agents/README.md | docs/, config/ | N/A — compliant | ✅ |
 
 ## Migration Plan
 
-**Last updated:** 2026-04-11 (post fix-review commit `ede5ace`)
+### Phase 0 — Quick Wins (mechanical, low risk)
+- [x] Add `frozen=True` to `WorkflowCreateRequest`
+- [x] Add `from __future__ import annotations` to 9 `__init__.py` files
+- [x] Add `match=` to 2 bare `pytest.raises` in `test_models.py`
+- [x] Add `match=` to 2 bare `pytest.raises` in `test_workflow_fsm.py` (file later deleted by 1.2)
+- [x] Add `api-no-persistence` import-linter contract
+- [x] Update stale `.importlinter` comment about Phase 4 contracts
+- [x] Add COMPOSITION_LAYER.md cross-reference to ARCHITECTURE.md
+- [x] Restrict CORS allow_methods/allow_headers to actual verbs
 
-### Phase 0 — Quick Wins (mechanical, low risk) — DONE
-- [x] Add `AuditAction.HUMAN_APPROVED` and `AgentName.HUMAN` enum members (Fix 0.1)
-- [x] Replace `"review"` with `WorkflowStep.REVIEW` in orchestrator.py (Fix 0.1)
-- [x] Add `response_model` to POST /approve and `response_class` to GET /adam (Fix 0.2)
-- [x] Add `from __future__ import annotations` to 5 __init__.py files (Fix 0.3)
-- [x] Add `Any` justification comments to 5 bare imports (Fix 0.4)
-- [x] Export TERMINAL_STATUSES from status.ts, import in Dashboard/Detail/hooks (Fix 0.5)
-- [x] Add missing WorkflowStep values to frontend STATUS_COLOR_MAP (Fix 0.5)
-- [x] Remove phantom `initialized`/`started` entries from status.ts (Fix 0.5)
+### Phase 1 — Structural (medium effort)
+- [x] Split `models.py` into `enums.py` + `models.py` — ⚠️ Partial: 254→201L (1L over hard limit; `__all__` boilerplate)
+- [x] Split `derivation_runner.py` — extract debug logic to `debug_runner.py` (287→135L + 192L new)
+- [ ] Extract `_build_status_response` + `_dag_node_out` from `workflows.py` to presenter module — deferred
+- [x] Extract `_serialize_ctx` + `_build_result` from `WorkflowManager` to serializer (class 211→145L)
+- [x] Extract `WorkflowDetailPage` sub-components (Header, Tabs) — 211→65L
+- [ ] Move `SpecsPage` YAML content fetch to TanStack Query hook — deferred
+- [ ] Type API schema status fields as StrEnum — deferred (coordinated backend+frontend change)
+- [x] Replace `PipelineFSM` raw strings with `WorkflowStep` enum values (transition guards intentionally deferred)
+- [x] Replace `"running"` and `"unknown"` raw strings in router — added WorkflowStep.RUNNING + UNKNOWN members
+- [x] Push `delete_workflow` DB session into `WorkflowManager`
+- [x] Create `test_step_builtins.py` (17 tests) + `test_pipeline_context.py` (11 tests) — `test_factory.py` deferred
+- [x] Add FSM invalid-transition tests to `test_pipeline_fsm.py` (+4 tests)
+- [ ] Introduce `DerivationRunContext` dataclass to reduce function params — deferred
 
-### Phase 1 — Structural Improvements (medium effort) — DONE
-- [x] Route WorkflowManager DB queries through WorkflowStateRepository (Fix 1.1)
-- [x] Change CORS default from `"*"` to `"http://localhost:3000"` (Fix 1.2)
-- [x] Add tests for approve/delete/list API endpoints (Fix 1.3)
-- [x] Add WorkflowManager load_history/delete/is_known tests (Fix 1.3)
-- [x] Add `match=` to all bare pytest.raises calls (Fix 1.4)
+### Phase 2 — Architectural (higher effort)
+- [x] Delete old orchestrator (`orchestrator.py`, `workflow_fsm.py`, `orchestrator_helpers.py`) — 7 files deleted
+- [ ] Define typed `as const` status unions in frontend, narrow `types/api.ts` — deferred
+- [ ] Add Vitest + RTL to frontend with smoke tests for key components — deferred (separate initiative)
+- [ ] Add tests for `get_workflow_audit` and `get_workflow_dag` endpoints — deferred
+- [ ] Strengthen `test_logging.py` and `test_mcp.py` assertions — deferred
 
-### Phase 2 — Architectural (medium-high effort) — DONE
-- [x] Create test_orchestrator_helpers.py with 6 test cases (Fix 2.1)
-- [x] Narrow AuditRecord.action/agent to `AuditAction | str` / `AgentName | str` (Fix 2.2)
-- [x] Narrow AuditTrail.record() params to accept enum types (Fix 2.2)
-- [x] Extract OrchestratorRepos dataclass (reduce __init__ params) (Fix 2.3)
-
-### Remaining — Deferred (not blocking homework submission)
-- [ ] Drop `.value` from `WorkflowStep.COMPLETED.value` in orchestrator_helpers.py:60 (kept as-is — `.value` IS correct because `current_state_value` returns `str`)
-- [ ] Replace raw `str` fields in API schemas with StrEnum types
-- [ ] Collapse WorkflowStatus into WorkflowStep (single source of truth) — risk of breaking changes
-- [ ] Add Vitest + RTL to frontend — large scope, separate initiative
-- [ ] Test Orchestrator.run() with TestModel/FunctionModel — requires LLM mock infra
-- [ ] Parametrize full FSM invalid transition matrix
-- [ ] Add Alembic migration infrastructure — production concern
-- [ ] Split Settings into DatabaseSettings/LLMSettings/APISettings — low impact for homework
-- [ ] Add pagination to GET /workflows/ — small dataset
-- [ ] Move YAML spec content fetch to TanStack Query (not useState)
-- [ ] Extract WorkflowDetailView feature component (thin page)
-- [ ] Add eslint-plugin-boundaries for frontend import rules
+### Phase 3 — Ongoing Discipline
 - [ ] Add frontend test CI gate (vitest run)
-- [ ] Document Streamlit UI as deprecated (replaced by React SPA)
+- [ ] Add `api-no-engine` import-linter contract
+- [ ] Monitor file/class sizes as features are added
+- [ ] Document Alembic migration path as ADR
