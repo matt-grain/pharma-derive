@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from src.api.workflow_serializer import HistoricState, build_result, serialize_ctx
+from src.api.workflow_lifecycle import (
+    persist_audit_trail,
+    persist_error_state,
+    persist_success,
+    record_failure_audit,
+    run_with_checkpoint,
+)
+from src.api.workflow_serializer import HistoricState, build_result
 from src.config.settings import get_settings
-from src.domain.enums import AgentName, AuditAction, WorkflowStep
 from src.factory import create_pipeline_orchestrator
 
 if TYPE_CHECKING:
@@ -24,49 +29,8 @@ if TYPE_CHECKING:
     from src.engine.pipeline_interpreter import PipelineInterpreter
     from src.persistence.workflow_state_repo import WorkflowStateRepository
 
-# Re-export under the private name tests reference; HistoricState is the canonical name.
+# Tests import this private alias; HistoricState is the canonical name.
 _HistoricState = HistoricState
-
-
-def _persist_audit_trail(ctx: PipelineContext, output_dir: Path) -> None:
-    """Write the audit trail as JSON to output/{wf_id}_audit.json.
-
-    Runs in the finally block of _run_and_cleanup so the file is written
-    regardless of whether the pipeline succeeded, failed, or raised mid-step.
-    Best-effort: a write failure is logged but does not mask the original exception.
-    """
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        audit_path = output_dir / f"{ctx.workflow_id}_audit.json"
-        records = [rec.model_dump(mode="json") for rec in ctx.audit_trail.records]
-        audit_path.write_text(json.dumps(records, indent=2, default=str), encoding="utf-8")
-    except Exception:
-        logger.exception("Failed to persist audit trail for {wf_id}", wf_id=ctx.workflow_id)
-
-
-async def _persist_error_state(
-    wf_id: str,
-    ctx: PipelineContext,
-    session: AsyncSession,
-    started_at: str | None = None,
-    completed_at: str | None = None,
-) -> None:
-    """Best-effort persist of failed workflow state — rolls back on failure."""
-    from src.persistence.workflow_state_repo import WorkflowStateRepository
-
-    try:
-        state_repo = WorkflowStateRepository(session)
-        await state_repo.save(
-            workflow_id=wf_id,
-            state_json=serialize_ctx(ctx, WorkflowStep.FAILED.value, started_at=started_at, completed_at=completed_at),
-            fsm_state=WorkflowStep.FAILED.value,
-        )
-        await session.commit()
-    # Intentional swallow: already in the error-handling path; if persisting
-    # the error state itself fails, log and return rather than crash the caller.
-    except Exception:
-        logger.exception("Failed to persist error state for {wf_id}", wf_id=wf_id)
-        await session.rollback()
 
 
 class WorkflowManager:
@@ -119,88 +83,30 @@ class WorkflowManager:
         fsm: PipelineFSM,
         session: AsyncSession,
     ) -> WorkflowResult:
-        """Run the pipeline interpreter, persist state, store result."""
+        """Run the pipeline with checkpointing; delegates each lifecycle phase to workflow_lifecycle."""
         from src.persistence.workflow_state_repo import WorkflowStateRepository
 
         state_repo = WorkflowStateRepository(session)
-
-        async def _checkpoint(step_id: str) -> None:
-            """Persist current FSM + context snapshot so the run survives a restart."""
-            try:
-                await state_repo.save(
-                    workflow_id=wf_id,
-                    state_json=serialize_ctx(
-                        ctx,
-                        fsm.current_state_value,
-                        started_at=self._started_at.get(wf_id),
-                    ),
-                    fsm_state=fsm.current_state_value,
-                )
-                await session.commit()
-                logger.debug(
-                    "Checkpointed {wf_id} after step {step_id} (state={state})",
-                    wf_id=wf_id,
-                    step_id=step_id,
-                    state=fsm.current_state_value,
-                )
-            # Best-effort: a checkpoint failure must not abort the run — log and roll back
-            # so the long-lived session stays usable for the final save.
-            except Exception:
-                logger.exception("Checkpoint failed for {wf_id} at step {step_id}", wf_id=wf_id, step_id=step_id)
-                await session.rollback()
-
+        started_at = self._started_at.get(wf_id)
         try:
-            await interpreter.run(on_step_complete=_checkpoint)
+            await run_with_checkpoint(interpreter, ctx, fsm, session, state_repo, wf_id, started_at)
             fsm.complete()
-            # Capture completion time BEFORE the final save so the serialized row
-            # has a real completed_at — the finally block runs too late for this.
             self._completed_at[wf_id] = datetime.now(UTC).isoformat()
-            await state_repo.save(
-                workflow_id=wf_id,
-                state_json=serialize_ctx(
-                    ctx,
-                    fsm.current_state_value,
-                    started_at=self._started_at.get(wf_id),
-                    completed_at=self._completed_at.get(wf_id),
-                ),
-                fsm_state=fsm.current_state_value,
-            )
-            await session.commit()
+            await persist_success(state_repo, session, wf_id, ctx, fsm, started_at, self._completed_at[wf_id])
             result = build_result(wf_id, ctx, fsm)
             self._results[wf_id] = result
             logger.info("Workflow {wf_id} completed successfully", wf_id=wf_id)
             return result
         except Exception as exc:
             logger.exception("Workflow {wf_id} failed", wf_id=wf_id)
-            ctx.audit_trail.record(
-                variable="",
-                action=AuditAction.WORKFLOW_FAILED,
-                agent=AgentName.ORCHESTRATOR,
-                details={
-                    "error": str(exc),
-                    "error_type": type(exc).__name__,
-                    "failed_step": interpreter.current_step or "",
-                },
-            )
+            record_failure_audit(ctx, exc, interpreter.current_step)
             fsm.fail(str(exc))
-            # Same reasoning as the success path — capture completion time before
-            # persisting so the DB row has a real completed_at.
             self._completed_at[wf_id] = datetime.now(UTC).isoformat()
-            await _persist_error_state(
-                wf_id,
-                ctx,
-                session,
-                started_at=self._started_at.get(wf_id),
-                completed_at=self._completed_at[wf_id],
-            )
+            await persist_error_state(state_repo, session, wf_id, ctx, started_at, self._completed_at[wf_id])
             raise
         finally:
-            # Only fill in if the success/error paths didn't already set it — they
-            # capture the timestamp BEFORE their respective DB save so the row has
-            # a real completed_at on disk. This setdefault is the fallback for any
-            # path that skipped both (shouldn't happen, but is cheap insurance).
             self._completed_at.setdefault(wf_id, datetime.now(UTC).isoformat())
-            _persist_audit_trail(ctx, Path(get_settings().output_dir))
+            persist_audit_trail(ctx, Path(get_settings().output_dir))
             await session.close()
             self._active.pop(wf_id, None)
             self._sessions.pop(wf_id, None)

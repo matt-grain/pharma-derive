@@ -192,3 +192,4 @@ ignore_imports =
     src.api.workflow_manager -> src.persistence.database
     src.api.workflow_manager -> src.persistence.workflow_state_repo
     src.api.workflow_manager -> src.factory
+    src.api.workflow_lifecycle -> src.persistence.workflow_state_repo

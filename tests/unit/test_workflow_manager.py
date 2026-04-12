@@ -157,9 +157,9 @@ async def test_run_and_cleanup_populates_completed_at_on_success() -> None:
 
     with (
         patch("src.persistence.workflow_state_repo.WorkflowStateRepository") as mock_repo_cls,
-        patch("src.api.workflow_manager.serialize_ctx", return_value="{}"),
+        patch("src.api.workflow_lifecycle.serialize_ctx", return_value="{}"),
         patch("src.api.workflow_manager.build_result", return_value=MagicMock()),
-        patch("src.api.workflow_manager._persist_audit_trail"),
+        patch("src.api.workflow_manager.persist_audit_trail"),
     ):
         mock_repo_cls.return_value = AsyncMock()
 
@@ -194,8 +194,8 @@ async def test_run_and_cleanup_populates_completed_at_on_failure() -> None:
     manager._started_at[wf_id] = "2024-01-01T00:00:00+00:00"  # pyright: ignore[reportPrivateUsage]
 
     with (
-        patch("src.api.workflow_manager._persist_error_state", new_callable=AsyncMock),
-        patch("src.api.workflow_manager._persist_audit_trail"),
+        patch("src.api.workflow_manager.persist_error_state", new_callable=AsyncMock),
+        patch("src.api.workflow_manager.persist_audit_trail"),
         pytest.raises(RuntimeError, match="pipeline boom"),
     ):
         # Act — exception must propagate
@@ -226,10 +226,10 @@ async def test_get_completed_at_unknown_workflow_returns_none() -> None:
 
 
 async def test_run_and_cleanup_writes_audit_trail_file_on_success(tmp_path: Path) -> None:
-    """On successful completion, _persist_audit_trail writes a JSON file to output_dir."""
+    """On successful completion, persist_audit_trail writes a JSON file to output_dir."""
     import json as json_module
 
-    from src.api.workflow_manager import _persist_audit_trail  # pyright: ignore[reportPrivateUsage]
+    from src.api.workflow_lifecycle import persist_audit_trail
 
     # Arrange
     wf_id = "wf-audit-success"
@@ -238,7 +238,7 @@ async def test_run_and_cleanup_writes_audit_trail_file_on_success(tmp_path: Path
     ctx = PipelineContext(workflow_id=wf_id, audit_trail=trail, llm_base_url="http://localhost")
 
     # Act
-    _persist_audit_trail(ctx, tmp_path)
+    persist_audit_trail(ctx, tmp_path)
 
     # Assert
     audit_path = tmp_path / f"{wf_id}_audit.json"
@@ -271,7 +271,7 @@ async def test_run_and_cleanup_writes_audit_trail_file_on_failure(tmp_path: Path
     manager._started_at[wf_id] = "2024-01-01T00:00:00+00:00"  # pyright: ignore[reportPrivateUsage]
 
     with (
-        patch("src.api.workflow_manager._persist_error_state", new_callable=AsyncMock),
+        patch("src.api.workflow_manager.persist_error_state", new_callable=AsyncMock),
         patch("src.api.workflow_manager.get_settings", return_value=MagicMock(output_dir=str(tmp_path))),
         pytest.raises(RuntimeError, match="pipeline boom"),
     ):
@@ -417,8 +417,8 @@ async def test_run_and_cleanup_records_workflow_failed_audit_on_exception() -> N
     manager._started_at[wf_id] = "2024-01-01T00:00:00+00:00"  # pyright: ignore[reportPrivateUsage]
 
     with (
-        patch("src.api.workflow_manager._persist_error_state", new_callable=AsyncMock),
-        patch("src.api.workflow_manager._persist_audit_trail"),
+        patch("src.api.workflow_manager.persist_error_state", new_callable=AsyncMock),
+        patch("src.api.workflow_manager.persist_audit_trail"),
         pytest.raises(RuntimeError, match="kaboom"),
     ):
         # Act
@@ -490,9 +490,9 @@ async def test_run_and_cleanup_checkpoints_after_each_step() -> None:
 
     with (
         patch("src.persistence.workflow_state_repo.WorkflowStateRepository", return_value=fake_repo),
-        patch("src.api.workflow_manager.serialize_ctx", return_value="{}"),
+        patch("src.api.workflow_lifecycle.serialize_ctx", return_value="{}"),
         patch("src.api.workflow_manager.build_result", return_value=MagicMock()),
-        patch("src.api.workflow_manager._persist_audit_trail"),
+        patch("src.api.workflow_manager.persist_audit_trail"),
     ):
         # Act
         await manager._run_and_cleanup(wf_id, mock_interpreter, ctx, mock_fsm, mock_session)  # pyright: ignore[reportPrivateUsage]
