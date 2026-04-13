@@ -39,3 +39,20 @@ class DAGError(CDDEError):
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
+
+
+class NotFoundError(CDDEError):
+    """Raised when a requested entity (variable, workflow, etc.) does not exist."""
+
+    def __init__(self, entity_type: str, identifier: str) -> None:
+        self.entity_type = entity_type
+        self.identifier = identifier
+        super().__init__(f"{entity_type} '{identifier}' not found")
+
+
+class WorkflowRejectedError(CDDEError):
+    """Raised inside HITLGateStepExecutor when a human rejects the workflow."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(f"Workflow rejected by human: {reason}")

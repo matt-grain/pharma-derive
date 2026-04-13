@@ -127,10 +127,21 @@ class HITLGateStepExecutor(StepExecutor):
             details={"step": step.id, "message": message},
         )
 
-        # Store the event so external callers (API) can signal approval
+        # Store the event so external callers (API) can signal approval or rejection
         approval_event = asyncio.Event()
         ctx.set_output(step.id, "_approval_event", approval_event)
         await approval_event.wait()
+
+        if ctx.rejection_requested:
+            from src.domain.exceptions import WorkflowRejectedError
+
+            ctx.audit_trail.record(
+                variable="",
+                action=AuditAction.HUMAN_REJECTED,
+                agent=AgentName.HUMAN,
+                details={"gate": step.id, "reason": ctx.rejection_reason},
+            )
+            raise WorkflowRejectedError(ctx.rejection_reason)
 
         ctx.audit_trail.record(
             variable="",

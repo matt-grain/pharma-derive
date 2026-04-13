@@ -31,6 +31,8 @@ class PipelineContext:
     output_dir: Path | None = None
     pattern_repo: PatternRepository | None = None
     qc_history_repo: QCHistoryRepository | None = None
+    rejection_requested: bool = False
+    rejection_reason: str = ""
 
     # Step outputs — populated during execution
     spec: TransformationSpec | None = None

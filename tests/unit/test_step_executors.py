@@ -6,11 +6,13 @@ integration tests that use PydanticAI's TestModel/FunctionModel.
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.domain.enums import AuditAction
+from src.domain.exceptions import WorkflowRejectedError
 from src.domain.pipeline_models import StepDefinition, StepType
 from src.engine.pipeline_context import PipelineContext
 from src.engine.step_executors import (
@@ -18,6 +20,7 @@ from src.engine.step_executors import (
     AgentStepExecutor,
     BuiltinStepExecutor,
     GatherStepExecutor,
+    HITLGateStepExecutor,
     ParallelMapStepExecutor,
 )
 
@@ -121,3 +124,52 @@ async def test_agent_step_executor_records_step_started_with_agent_name(mock_ctx
     assert len(step_started_records) == 1
     assert step_started_records[0].agent == "spec_interpreter"
     assert step_started_records[0].agent != "orchestrator"
+
+
+async def test_hitl_gate_with_rejection_flag_raises_workflow_rejected_error(mock_ctx: PipelineContext) -> None:
+    """HITLGateStepExecutor raises WorkflowRejectedError and records HUMAN_REJECTED when flag is set."""
+    # Arrange
+    step = StepDefinition(id="review_gate", type=StepType.HITL_GATE)
+    mock_ctx.rejection_requested = True
+    mock_ctx.rejection_reason = "bad derivation"
+    executor = HITLGateStepExecutor()
+
+    # Act — start executor as a task, then set the event once it registers in ctx
+    task = asyncio.create_task(executor.execute(step, mock_ctx))
+    await asyncio.sleep(0)  # yield to let executor reach approval_event.wait()
+    event = mock_ctx.step_outputs["review_gate"]["_approval_event"]
+    event.set()
+
+    # Assert
+    with pytest.raises(WorkflowRejectedError, match="bad derivation"):
+        await task
+
+    rejected_records = [r for r in mock_ctx.audit_trail.records if r.action == AuditAction.HUMAN_REJECTED]
+    assert len(rejected_records) == 1
+    assert rejected_records[0].details == {"gate": "review_gate", "reason": "bad derivation"}
+
+    approved_records = [r for r in mock_ctx.audit_trail.records if r.action == AuditAction.HUMAN_APPROVED]
+    assert len(approved_records) == 0
+
+
+async def test_hitl_gate_without_rejection_flag_records_human_approved(mock_ctx: PipelineContext) -> None:
+    """HITLGateStepExecutor records HUMAN_APPROVED and does not raise when rejection flag is not set."""
+    # Arrange
+    step = StepDefinition(id="review_gate", type=StepType.HITL_GATE)
+    mock_ctx.rejection_requested = False
+    executor = HITLGateStepExecutor()
+
+    # Act — start executor as a task, then set the event once it registers in ctx
+    task = asyncio.create_task(executor.execute(step, mock_ctx))
+    await asyncio.sleep(0)  # yield to let executor reach approval_event.wait()
+    event = mock_ctx.step_outputs["review_gate"]["_approval_event"]
+    event.set()
+    await task
+
+    # Assert
+    approved_records = [r for r in mock_ctx.audit_trail.records if r.action == AuditAction.HUMAN_APPROVED]
+    assert len(approved_records) == 1
+    assert approved_records[0].details == {"gate": "review_gate"}
+
+    rejected_records = [r for r in mock_ctx.audit_trail.records if r.action == AuditAction.HUMAN_REJECTED]
+    assert len(rejected_records) == 0
