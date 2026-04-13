@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { TERMINAL_STATUSES } from '@/lib/status'
+import type { ApprovalRequest, RejectionRequest, VariableOverrideRequest } from '@/types/api'
 
 export function useHealth() {
   return useQuery({
@@ -117,7 +118,41 @@ export function useRerunWorkflow() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['workflows'] })
     },
-    // eslint-disable-next-line no-alert -- using native alert until a toast system is added
+     
     onError: (err: Error) => { alert(`Cannot rerun this workflow\n\n${err.message}`) },
+  })
+}
+
+export function useApproveWorkflowWithFeedback(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: ApprovalRequest) => api.approveWorkflowWithFeedback(id, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workflow', id] })
+      void queryClient.invalidateQueries({ queryKey: ['workflows'] })
+    },
+  })
+}
+
+export function useRejectWorkflow(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: RejectionRequest) => api.rejectWorkflow(id, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workflow', id] })
+      void queryClient.invalidateQueries({ queryKey: ['workflows'] })
+    },
+  })
+}
+
+export function useOverrideVariable(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ variable, payload }: { variable: string; payload: VariableOverrideRequest }) =>
+      api.overrideVariable(id, variable, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workflow', id, 'dag'] })
+      void queryClient.invalidateQueries({ queryKey: ['workflow', id, 'result'] })
+    },
   })
 }

@@ -1,8 +1,14 @@
-import type { DAGNode } from '@/types/api'
+import { useState } from 'react'
+import type { DAGNode, WorkflowStatus } from '@/types/api'
 import { StatusBadge } from '@/components/StatusBadge'
+import { Button } from '@/components/ui/button'
+import { CodeEditorDialog } from '@/components/CodeEditorDialog'
+import { useOverrideVariable } from '@/hooks/useWorkflows'
 
 type CodePanelProps = {
   node: DAGNode
+  workflowId: string
+  status: WorkflowStatus
 }
 
 function CodeBlock({ title, code }: { title: string; code: string | null }) {
@@ -32,8 +38,11 @@ function resolveLabel(node: DAGNode): string {
   return 'QC: mismatch — resolved by debugger, fix applied'
 }
 
-export function CodePanel({ node }: CodePanelProps) {
+export function CodePanel({ node, workflowId, status }: CodePanelProps) {
   const hasCode = node.coder_code ?? node.qc_code ?? node.approved_code
+  const [editingVariable, setEditingVariable] = useState<string | null>(null)
+  const overrideMutation = useOverrideVariable(workflowId)
+  const currentNode = editingVariable === node.variable ? node : null
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -41,6 +50,16 @@ export function CodePanel({ node }: CodePanelProps) {
         <h3 className="text-sm font-semibold text-slate-800">{node.variable}</h3>
         <StatusBadge status={node.status} />
         <span className="text-xs text-slate-500">{resolveLabel(node)}</span>
+        {status.awaiting_approval && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            onClick={() => setEditingVariable(node.variable)}
+          >
+            Edit
+          </Button>
+        )}
       </div>
 
       {!hasCode && (
@@ -54,6 +73,21 @@ export function CodePanel({ node }: CodePanelProps) {
           <CodeBlock title="Approved" code={node.approved_code} />
         )}
       </div>
+
+      <CodeEditorDialog
+        open={editingVariable === node.variable}
+        onOpenChange={(open) => { if (!open) setEditingVariable(null) }}
+        variable={editingVariable ?? ''}
+        currentCode={currentNode?.approved_code ?? node.approved_code ?? node.coder_code ?? ''}
+        onSave={(newCode, reason) => {
+          overrideMutation.mutate(
+            { variable: node.variable, payload: { new_code: newCode, reason } },
+            { onSuccess: () => setEditingVariable(null) },
+          )
+        }}
+        isSaving={overrideMutation.isPending}
+        error={overrideMutation.error?.message ?? null}
+      />
     </div>
   )
 }

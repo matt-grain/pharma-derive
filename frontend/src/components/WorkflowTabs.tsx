@@ -84,7 +84,14 @@ export function WorkflowTabs({
       <TabsContent value="code">
         <div className="space-y-4">
           {dagNodes && dagNodes.length > 0 ? (
-            dagNodes.map((node) => <CodePanel key={node.variable} node={node} />)
+            dagNodes.map((node) => (
+              <CodePanel
+                key={node.variable}
+                node={node}
+                workflowId={workflowId}
+                status={status}
+              />
+            ))
           ) : (
             <div className={EMPTY_STATE_CLASS}>No code generated yet</div>
           )}

@@ -3,7 +3,16 @@ import { AlertCircle } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { WorkflowHeader } from '@/components/WorkflowHeader'
 import { WorkflowTabs } from '@/components/WorkflowTabs'
-import { useWorkflowStatus, useWorkflowDag, useWorkflowAudit, useWorkflowResult, useWorkflowData, useApproveWorkflow, usePipeline } from '@/hooks/useWorkflows'
+import {
+  useWorkflowStatus,
+  useWorkflowDag,
+  useWorkflowAudit,
+  useWorkflowResult,
+  useWorkflowData,
+  useApproveWorkflowWithFeedback,
+  useRejectWorkflow,
+  usePipeline,
+} from '@/hooks/useWorkflows'
 import { TERMINAL_STATUSES } from '@/lib/status'
 
 export function WorkflowDetailPage() {
@@ -17,7 +26,8 @@ export function WorkflowDetailPage() {
   const isTerminal = (TERMINAL_STATUSES as readonly string[]).includes(status?.status ?? '')
   const { data: result } = useWorkflowResult(workflowId, isTerminal)
   const { data: dataPreview, isLoading: isDataLoading } = useWorkflowData(workflowId, isTerminal)
-  const { mutate: approve, isPending: isApproving } = useApproveWorkflow(workflowId)
+  const approveMutation = useApproveWorkflowWithFeedback(workflowId)
+  const rejectMutation = useRejectWorkflow(workflowId)
   const { data: pipeline } = usePipeline()
 
   if (isLoading) {
@@ -46,9 +56,12 @@ export function WorkflowDetailPage() {
         status={status}
         workflowId={workflowId}
         result={result}
-        isApproving={isApproving}
+        dagNodes={dagNodes ?? []}
+        isApproving={approveMutation.isPending}
+        isRejecting={rejectMutation.isPending}
         onBack={() => navigate('/')}
-        onApprove={() => approve()}
+        onApproveWithFeedback={(payload) => approveMutation.mutate(payload)}
+        onReject={(reason) => rejectMutation.mutate({ reason })}
       />
       <WorkflowTabs
         status={status}

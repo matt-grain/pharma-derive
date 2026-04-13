@@ -1,11 +1,14 @@
 import type {
+  ApprovalRequest,
   AuditRecord,
   DAGNode,
   DataPreviewResponse,
   HealthResponse,
   Pipeline,
+  RejectionRequest,
   SpecItem,
   StartWorkflowResponse,
+  VariableOverrideRequest,
   WorkflowResult,
   WorkflowStatus,
 } from '@/types/api'
@@ -91,4 +94,25 @@ export const api = {
 
   rerunWorkflow: (id: string): Promise<StartWorkflowResponse> =>
     fetchJson<StartWorkflowResponse>(`${BASE}/workflows/${id}/rerun`, { method: 'POST' }),
+
+  approveWorkflowWithFeedback: (id: string, payload: ApprovalRequest): Promise<WorkflowStatus> =>
+    fetchJson<WorkflowStatus>(`${BASE}/workflows/${id}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  rejectWorkflow: (id: string, payload: RejectionRequest): Promise<WorkflowStatus> =>
+    fetchJson<WorkflowStatus>(`${BASE}/workflows/${id}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+
+  overrideVariable: (id: string, variable: string, payload: VariableOverrideRequest): Promise<DAGNode> =>
+    fetchJson<DAGNode>(`${BASE}/workflows/${id}/variables/${variable}/override`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
 }

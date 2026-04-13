@@ -7,26 +7,30 @@
 
 | Phase | Status | Tests | Completion |
 |-------|--------|-------|------------|
-| Phase 1: Domain layer | ✅ Complete | 25 | 100% |
-| Phase 2: Agent definitions | ✅ Complete | 52 | 100% |
-| Phase 3: Orchestration | ✅ Complete | 87 | 100% |
-| Phase 4: Persistence + Audit | ✅ Complete | 118 | 100% |
-| Phase 5: CDISC data | ✅ Complete | 125 | 100% |
-| Phase 6: Review fixes | ✅ Complete | 148 | 100% |
-| Phase 7: Streamlit UI | ✅ Complete | 148 | 100% |
-| Phase 8: Design doc + Presentation | ✅ Complete | 148 | 100% |
-| Phase 9: Docker + README | ✅ Complete | 148 | 100% |
-| Phase 10: Production hardening | ✅ Complete | 153 | 100% |
-| Phase 11: UI/API split | ✅ Complete | 173 | 100% |
-| Phase 12: YAML agent config | ✅ Complete | 173 | 100% |
-| Phase 13: ADaM data output (F07) | ✅ Complete | 189 | 100% |
-| Phase 14: YAML pipeline (F02/F03) | ✅ Complete | 243 | 100% |
-| Phase 15: Resilience + restart + lineage DAG | ✅ Complete | 259 | 100% |
-| Phase 16.1: Long-term memory wiring | ✅ Complete | 282 | 100% |
-| Phase 16.2a: HITL backend plumbing | ✅ Complete | 284 | 100% |
-| Phase 16.2b: HITL backend API surface | ✅ Complete | 292 | 100% |
+| Phase 1: Domain layer | ✅ Complete | 25 (py) | 100% |
+| Phase 2: Agent definitions | ✅ Complete | 52 (py) | 100% |
+| Phase 3: Orchestration | ✅ Complete | 87 (py) | 100% |
+| Phase 4: Persistence + Audit | ✅ Complete | 118 (py) | 100% |
+| Phase 5: CDISC data | ✅ Complete | 125 (py) | 100% |
+| Phase 6: Review fixes | ✅ Complete | 148 (py) | 100% |
+| Phase 7: Streamlit UI | ✅ Complete | 148 (py) | 100% |
+| Phase 8: Design doc + Presentation | ✅ Complete | 148 (py) | 100% |
+| Phase 9: Docker + README | ✅ Complete | 148 (py) | 100% |
+| Phase 10: Production hardening | ✅ Complete | 153 (py) | 100% |
+| Phase 11: UI/API split | ✅ Complete | 173 (py) | 100% |
+| Phase 12: YAML agent config | ✅ Complete | 173 (py) | 100% |
+| Phase 13: ADaM data output (F07) | ✅ Complete | 189 (py) | 100% |
+| Phase 14: YAML pipeline (F02/F03) | ✅ Complete | 243 (py) | 100% |
+| Phase 15: Resilience + restart + lineage DAG | ✅ Complete | 259 (py) | 100% |
+| Phase 16.1: Long-term memory wiring | ✅ Complete | 282 (py) | 100% |
+| Phase 16.2a: HITL backend plumbing | ✅ Complete | 284 (py) | 100% |
+| Phase 16.2b: HITL backend API surface | ✅ Complete | 292 (py) | 100% |
+| Phase 16.3.0: Frontend test infrastructure | ✅ Complete | 0 (ts) | 100% |
+| Phase 16.3a: HITL frontend plumbing | ✅ Complete | 0 (ts) | 100% |
+| Phase 16.3b: HITL frontend dialogs + wiring | ✅ Complete | 13 (ts) | 100% |
 
-**Overall:** 17/17 phases complete (100%) ✅
+**Overall:** 20/20 phases complete (100%) ✅
+**Backend:** 292 tests | **Frontend:** 13 tests
 
 ---
 
@@ -441,15 +445,159 @@ lines; added a focused `routers/hitl.py` instead.
 
 ---
 
-## Next Phase Preview
+## Phase 16.3 — HITL Frontend Surface
 
-**Phase 16.3: HITL Frontend Surface**
-- UI affordances for reject button, per-variable decisions, override editor
-- Dependencies: Phase 16.2b ✅
-- Split across `16.3_0.md` (scaffolding), `16.3_A.md`, `16.3_B.md` — ready to start
+**Implemented:** 2026-04-13
+**Agent:** `vite-react` (all 3 sub-phases)
+**Sub-phases:** 16.3.0 (test infra) + 16.3a (plumbing) + 16.3b (dialogs + wiring)
+**Commits:** none yet — awaiting `/check` review before commit
+**Frontend tooling:** ✅ `pnpm tsc --noEmit`, `pnpm eslint`, `pnpm test`, `pnpm vite build` all green vs pre-existing baseline
+
+### Goal
+Surface Phase 16.2b's new backend endpoints (`/reject`, `/approve` with
+payload, `/variables/{var}/override`) in the frontend so reviewers can
+actually reject, approve per-variable, and edit code from the UI.
+
+### 16.3.0 — Test Infrastructure
+Frontend had no test harness at all (no vitest, no testing-library, no
+`test` script). This phase installed:
+- `vitest@4.1.4`, `@testing-library/react@16.3.2`,
+  `@testing-library/user-event@14.6.1`,
+  `@testing-library/jest-dom@6.9.1`, `jsdom@29.0.2`, `@vitest/ui@4.1.4`
+- `frontend/vitest.config.ts` (jsdom env, globals, `@/* → src/*` alias
+  matching `tsconfig.app.json`)
+- `frontend/src/test-setup.ts` (imports jest-dom matchers)
+- `test`, `test:watch`, `test:ui` scripts in `package.json`
+- `tsconfig.node.json` extended to type-check the new `vitest.config.ts`
+
+Zero product code changes. `pnpm test` exits 0 with
+`passWithNoTests: true` until 16.3b adds actual tests.
+
+### 16.3a — Plumbing (types, client, hooks, primitive)
+- **`frontend/src/components/ui/textarea.tsx`** — shadcn Textarea
+  primitive (missing from the repo); forwardRef so React Hook Form
+  works; mirrors the existing `ui/input.tsx` style but adapted
+  because `input.tsx` wraps `@base-ui/react/input` while no base-ui
+  textarea counterpart exists
+- **`frontend/src/types/api.ts`** — 4 new interfaces mirroring the
+  16.2b Pydantic schemas: `VariableDecision`, `ApprovalRequest`,
+  `RejectionRequest`, `VariableOverrideRequest` (written as
+  `interface` to match the file's existing style, not `type`)
+- **`frontend/src/lib/api.ts`** — 3 new methods added as arrow-function
+  properties on the existing `const api = { ... }` object:
+  `approveWorkflowWithFeedback`, `rejectWorkflow`, `overrideVariable`.
+  All use the existing `fetchJson<T>` helper and `BASE = '/api/v1'`
+  constant. Existing `approveWorkflow` (no body) kept for backwards
+  compat.
+- **`frontend/src/hooks/useWorkflows.ts`** — 3 new TanStack mutation
+  hooks (`useApproveWorkflowWithFeedback`, `useRejectWorkflow`,
+  `useOverrideVariable`) with inline array query keys
+  (`['workflow', id]`, `['workflow', id, 'dag']`, `['workflows']`).
+  All `mutationFn` bodies call `api.<method>(...)`, never a bare
+  function — matches existing hook style. `void` prefix on
+  `invalidateQueries` for the `no-floating-promises` rule.
+
+No dialog components, no page wiring, no tests in this sub-phase.
+
+### 16.3b — Dialogs + Wiring
+**Created (4 components + 3 test files):**
+- `RejectDialog.tsx` (57 lines) — mandatory reason textarea,
+  destructive confirm, whitespace-only rejection check, `isRejecting`
+  button state
+- `VariableApprovalList.tsx` (40 lines) — stateless per-variable
+  checkbox list with `StatusBadge` QC verdict reuse and first-80-char
+  code snippet; `max-h-96 overflow-y-auto`
+- `ApprovalDialog.tsx` (112 lines) — wraps the list + optional reason
+  textarea; initializes `decisions` state as approve-all. **12 lines
+  over the 100-line spec target** because the `react-hooks/set-state-in-effect`
+  ESLint rule forced extracting an inner `ApprovalDialogBody` keyed
+  by the variables prop to reset state on reopen — the idiomatic React
+  answer. Still well under the 200-line hard cap.
+- `CodeEditorDialog.tsx` (114 lines) — monospace `rows={20}` code
+  textarea pre-filled with current code + mandatory reason +
+  inline error display from the `error` prop; save disabled when
+  code unchanged, reason empty, or saving in progress. Plain
+  textarea (no syntax highlighting) — explicit demo-grade choice;
+  production would use CodeMirror.
+- `RejectDialog.test.tsx` (70 lines, 5 tests), `ApprovalDialog.test.tsx`
+  (104 lines, 3 tests), `CodeEditorDialog.test.tsx` (84 lines, 5 tests)
+  — pure component tests via props + callbacks, no MSW. RTL queries
+  are `getByRole`/`getByLabelText`/`getByText`, no class-name assertions.
+
+**Modified:**
+- `WorkflowHeader.tsx` (146/150 lines) — removed the single `onApprove`
+  button, added Approve + Reject buttons inside the amber HITL alert,
+  mounted `ApprovalDialog` and `RejectDialog`. New props: `dagNodes`,
+  `onReject`, `onApproveWithFeedback`, `isRejecting`.
+- `CodePanel.tsx` (93 lines) — added an Edit button next to the
+  approved-code heading for each variable, visible only when
+  `status.awaiting_approval === true`. Mounts `CodeEditorDialog`
+  keyed by `editingVariable`, wires `useOverrideVariable(workflowId)`
+  with `onSuccess` auto-close.
+- `WorkflowTabs.tsx` (118 lines) — **pass-through addition** —
+  `CodePanel` is rendered inside `WorkflowTabs`, not directly in
+  `WorkflowDetailPage`, so `workflowId` + `status` had to be
+  threaded through here (a fact not in the original plan — the
+  subagent read the code and adapted correctly).
+- `WorkflowDetailPage.tsx` (78 lines) — added
+  `useApproveWorkflowWithFeedback`, `useRejectWorkflow`,
+  `useWorkflowDag` wiring; passes `dagNodes ?? []` into
+  `WorkflowHeader`; removed the old `useApproveWorkflow` import.
+- `tsconfig.app.json` — surgical addition of `"vitest/globals"` and
+  `"@testing-library/jest-dom"` to `compilerOptions.types` so the
+  new test files type-check.
+
+### Tests Added
+- **0 tests in 16.3.0** (test harness only)
+- **0 tests in 16.3a** (plumbing only)
+- **13 tests in 16.3b** (component tests, all passing)
+
+### Verification Checklist
+| Item | Status |
+|------|--------|
+| All 4 dialog components created | ✅ |
+| Reject button visible when `awaiting_approval=true` | ✅ |
+| Approve opens per-variable dialog with approve-all default | ✅ |
+| Edit button per variable, only when awaiting approval | ✅ |
+| Override mutation invalidates dag + result query keys | ✅ |
+| API errors surface inline in `CodeEditorDialog` | ✅ |
+| 13 component tests covering happy/error/edge paths | ✅ |
+| All type references use `DAGNode` (never `DAGNodeOut`) | ✅ |
+| `pnpm tsc --noEmit` zero new errors vs baseline | ✅ |
+| `pnpm eslint` zero new errors vs baseline | ✅ |
+| `pnpm vite build` clean | ✅ |
+| 13/13 component tests pass | ✅ |
+
+### Plan Adaptations (subagent judgment calls)
+1. **`interface` over `type`** in `types/api.ts` — matches existing
+   file style.
+2. **`forwardRef` for Textarea** despite `input.tsx` using base-ui —
+   no base-ui textarea counterpart exists; forwardRef is the right
+   React pattern for form library compatibility.
+3. **Keyed inner-body component in `ApprovalDialog`** instead of
+   `useEffect` + `setState` for prop-driven state reset — the project's
+   strict ESLint config bans that pattern via
+   `react-hooks/set-state-in-effect`. Added 12 lines over the spec
+   target, within the hard limit.
+4. **`CodePanel` prop threading via `WorkflowTabs`** — the plan
+   assumed `CodePanel` was a direct child of `WorkflowDetailPage`,
+   but it's rendered inside `WorkflowTabs` via a map. Subagent read
+   the code and threaded `workflowId` + `status` through correctly.
+5. **Native `<input type="checkbox">` in `VariableApprovalList`** —
+   no shadcn `ui/checkbox.tsx` exists in the project.
 
 ---
 
-## All Phases 1-16.2 Complete ✅
+## Next Phase Preview
 
-**Current metrics:** 292 tests | 19 import contracts | 18 pre-push hooks | 10 custom arch checks | 0 gaps
+**Phases 16.4, 16.5** — per the `IMPLEMENTATION_PLAN_PHASE_16_4.md`
+and `IMPLEMENTATION_PLAN_PHASE_16_5.md` plan files (not yet reviewed
+in detail). Dependencies: Phase 16.3 ✅ (awaiting commit/push).
+
+---
+
+## All Phases 1-16.3 Complete ✅
+
+**Current metrics:** 292 backend tests + 13 frontend tests | 19 import contracts | 18 pre-push hooks | 10 custom arch checks | 0 gaps
+
+**Awaiting:** `/check` review of the uncommitted 16.3 delta before commit/push (per user instruction).

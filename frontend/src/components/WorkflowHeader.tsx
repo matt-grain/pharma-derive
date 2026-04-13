@@ -1,26 +1,38 @@
+import { useState } from 'react'
 import { ArrowLeft, AlertCircle, CheckCircle2, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { StatusBadge } from '@/components/StatusBadge'
-import type { WorkflowStatus, WorkflowResult } from '@/types/api'
+import { ApprovalDialog } from '@/components/ApprovalDialog'
+import { RejectDialog } from '@/components/RejectDialog'
+import type { WorkflowStatus, WorkflowResult, DAGNode, ApprovalRequest } from '@/types/api'
 
 type WorkflowHeaderProps = {
   status: WorkflowStatus
   workflowId: string
   result: WorkflowResult | undefined
+  dagNodes: DAGNode[]
   isApproving: boolean
+  isRejecting: boolean
   onBack: () => void
-  onApprove: () => void
+  onApproveWithFeedback: (payload: ApprovalRequest) => void
+  onReject: (reason: string) => void
 }
 
 export function WorkflowHeader({
   status,
   workflowId,
   result,
+  dagNodes,
   isApproving,
+  isRejecting,
   onBack,
-  onApprove,
+  onApproveWithFeedback,
+  onReject,
 }: WorkflowHeaderProps) {
+  const [approvalOpen, setApprovalOpen] = useState(false)
+  const [rejectOpen, setRejectOpen] = useState(false)
+
   return (
     <>
       {/* Breadcrumb */}
@@ -86,17 +98,49 @@ export function WorkflowHeader({
             <span className="text-[13px] text-amber-800">
               All derivations complete — review the DAG and code, then approve to proceed to audit.
             </span>
-            <Button
-              size="sm"
-              className="ml-4 bg-emerald-600 hover:bg-emerald-700"
-              onClick={onApprove}
-              disabled={isApproving}
-            >
-              {isApproving ? 'Approving...' : 'Approve & Run Audit'}
-            </Button>
+            <div className="ml-4 flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-red-300 text-red-700 hover:bg-red-50"
+                onClick={() => setRejectOpen(true)}
+                disabled={isRejecting}
+              >
+                {isRejecting ? 'Rejecting...' : 'Reject'}
+              </Button>
+              <Button
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700"
+                onClick={() => setApprovalOpen(true)}
+                disabled={isApproving}
+              >
+                Approve
+              </Button>
+            </div>
           </AlertDescription>
         </Alert>
       )}
+
+      <ApprovalDialog
+        open={approvalOpen}
+        onOpenChange={setApprovalOpen}
+        variables={dagNodes}
+        onConfirm={(payload) => {
+          onApproveWithFeedback(payload)
+          setApprovalOpen(false)
+        }}
+        isApproving={isApproving}
+      />
+
+      <RejectDialog
+        open={rejectOpen}
+        onOpenChange={setRejectOpen}
+        onConfirm={(reason) => {
+          onReject(reason)
+          setRejectOpen(false)
+        }}
+        isRejecting={isRejecting}
+      />
     </>
   )
 }

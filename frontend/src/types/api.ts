@@ -105,3 +105,23 @@ export interface Pipeline {
   description: string
   steps: PipelineStep[]
 }
+
+export interface VariableDecision {
+  variable: string
+  approved: boolean
+  note: string | null
+}
+
+export interface ApprovalRequest {
+  variables: VariableDecision[]
+  reason: string | null
+}
+
+export interface RejectionRequest {
+  reason: string
+}
+
+export interface VariableOverrideRequest {
+  new_code: string
+  reason: string
+}
