@@ -490,91 +490,155 @@ homework/
 ├── decisions.md
 ├── pyproject.toml
 ├── uv.lock
+├── .importlinter              # Layer contracts enforced by import-linter
+├── .pre-commit-config.yaml    # 18 pre-push hooks (ruff, pyright, radon, custom arch checks)
 ├── .github/workflows/ci.yml
 ├── docs/
 │   ├── homework.md            # Original assignment
 │   ├── REQUIREMENTS.md        # Problem framing & decisions
-│   └── design.md              # Deliverable design document
+│   ├── design.md              # Deliverable design document (source of truth)
+│   ├── design.docx            # Word export for panel review (generated via pandoc)
+│   └── GAP_ANALYSIS.md        # Code review gap tracking
 ├── data/
 │   ├── sdtm/cdiscpilot01/     # SDTM input (XPT)
 │   └── adam/cdiscpilot01/     # ADaM ground truth (XPT)
-├── specs/                     # Transformation specs (YAML)
+├── specs/                     # Transformation specs (YAML: simple_mock, adsl_cdiscpilot01)
+├── config/
+│   ├── README.md
+│   ├── guards.yaml            # AgentLens guard rules (design artifact, Phase 16.5)
+│   ├── agents/                # Per-agent YAML (factory + registry wire these up)
+│   │   ├── coder.yaml
+│   │   ├── qc_programmer.yaml
+│   │   ├── debugger.yaml
+│   │   ├── auditor.yaml
+│   │   └── spec_interpreter.yaml
+│   └── pipelines/             # YAML-driven orchestration definitions
+│       ├── clinical_derivation.yaml  # Standard 8-step flow (incl. ground_truth_check, save_patterns)
+│       ├── express.yaml              # 4-step rapid prototyping (no HITL, no QC)
+│       └── enterprise.yaml           # 9-step enterprise flow (3 HITL gates for 21 CFR Part 11)
 ├── src/
 │   ├── __init__.py
-│   ├── factory.py                 # DI factory for orchestrator
+│   ├── factory.py                 # DI factory — constructs PipelineContext with repos + session
 │   ├── config/                    # Infrastructure configuration
 │   │   ├── __init__.py
-│   │   ├── constants.py           # Shared defaults (DATABASE_URL, LLM_BASE_URL)
-│   │   ├── llm_gateway.py         # LLM model construction (AgentLens proxy)
-│   │   └── logging.py             # loguru configuration
-│   ├── domain/                    # Pure domain: models, DAG, FSM, spec parsing
+│   │   ├── llm_gateway.py         # Single point of LLM model construction (AgentLens proxy)
+│   │   ├── logging.py             # loguru configuration
+│   │   └── settings.py            # pydantic-settings BaseSettings
+│   ├── domain/                    # Pure domain (no framework deps above networkx/pandas/pyreadstat)
 │   │   ├── __init__.py
-│   │   ├── models.py              # DerivationRule, DAGNode, DerivationRunResult, etc.
-│   │   ├── exceptions.py          # CDDEError, WorkflowStateError, DerivationError, etc.
-│   │   ├── dag.py                 # DAG construction, topological sort, apply_run_result
+│   │   ├── models.py              # DerivationRule, DAGNode, DerivationRunResult, Transformation/SourceConfig, ValidationConfig
+│   │   ├── enums.py               # AgentName, AuditAction, DerivationStatus, OutputDType, QCVerdict, ConfidenceLevel, WorkflowStep, …
+│   │   ├── exceptions.py          # CDDEError, DerivationError, NotFoundError, WorkflowRejectedError, WorkflowStateError
+│   │   ├── dag.py                 # DAG construction, topological sort, apply_run_result, layers
+│   │   ├── ground_truth.py        # GroundTruthReport + VariableGroundTruthResult (Phase 16.4)
+│   │   ├── pipeline_models.py     # StepType, StepDefinition, PipelineDefinition, load_pipeline
 │   │   ├── spec_parser.py         # YAML spec → DerivationRule objects
-│   │   ├── executor.py            # Safe code execution + result comparison
-│   │   ├── source_loader.py       # CSV/XPT file loading
+│   │   ├── executor.py            # Safe derivation execution + compare_results helper
+│   │   ├── source_loader.py       # CSV/XPT file loading, left-join merge on primary key
 │   │   ├── synthetic.py           # Privacy-safe synthetic data generation
-│   │   ├── workflow_fsm.py        # Workflow state machine (python-statemachine)
 │   │   └── workflow_models.py     # WorkflowState, WorkflowResult
-│   ├── agents/                    # PydanticAI agent definitions
+│   ├── agents/                    # PydanticAI agent wiring (YAML-configured)
 │   │   ├── __init__.py
-│   │   ├── deps.py                # Shared CoderDeps dependency container
-│   │   ├── tools/                 # Agent tools (split by responsibility)
-│   │   │   ├── __init__.py        # Re-exports: inspect_data, execute_code
-│   │   │   ├── sandbox.py         # Safe builtins, blocked tokens, namespace builder
-│   │   │   ├── inspect_data.py    # Data inspection tool (schema, nulls, ranges)
-│   │   │   ├── execute_code.py    # Sandboxed code execution tool
-│   │   │   └── tracing.py         # @traced_tool decorator for observability
-│   │   ├── spec_interpreter.py
-│   │   ├── derivation_coder.py
-│   │   ├── qc_programmer.py
-│   │   ├── debugger.py
-│   │   └── auditor.py
-│   ├── engine/                    # Orchestration layer
+│   │   ├── deps.py                # CoderDeps / AuditorDeps / DebuggerDeps / SpecInterpreterDeps
+│   │   ├── factory.py             # load_agent(path) — builds Agent from YAML + TOOL_MAP
+│   │   ├── registry.py            # OUTPUT_TYPE_MAP, DEPS_TYPE_MAP, TOOL_MAP
+│   │   ├── types.py               # DerivationCode, DebugAnalysis, SpecInterpretation
+│   │   └── tools/
+│   │       ├── __init__.py        # Re-exports inspect_data, execute_code, query_patterns
+│   │       ├── sandbox.py         # Safe builtins, blocked tokens, namespace builder
+│   │       ├── inspect_data.py    # Data inspection tool (schema, nulls, ranges)
+│   │       ├── execute_code.py    # Sandboxed code execution tool
+│   │       ├── query_patterns.py  # Long-term memory tool (Phase 16.1)
+│   │       └── tracing.py         # @traced_tool decorator for observability
+│   ├── engine/                    # Orchestration layer (YAML-driven pipeline interpreter)
 │   │   ├── __init__.py
-│   │   ├── orchestrator.py        # Workflow controller, agent dispatch
-│   │   └── derivation_runner.py   # Per-variable coder+QC+verify+debug loop
-│   ├── verification/              # QC / double programming
+│   │   ├── pipeline_interpreter.py   # Topological sort (Kahn) + step dispatch loop
+│   │   ├── pipeline_fsm.py           # Lightweight state tracker (states derived from step IDs)
+│   │   ├── pipeline_context.py       # Shared mutable state: dag, derived_df, spec, repos (DI), rejection flags
+│   │   ├── step_executors.py         # Agent / Builtin / Gather / ParallelMap / HITLGate executors
+│   │   ├── step_builtins.py          # parse_spec, build_dag, export_adam, save_patterns, compare_ground_truth
+│   │   ├── derivation_runner.py      # Per-variable coder+QC+verify+debug loop
+│   │   └── debug_runner.py           # Debug agent dispatch + apply_series_to_df helper
+│   ├── verification/              # QC / double programming (independent from agents)
 │   │   ├── __init__.py
 │   │   └── comparator.py
 │   ├── audit/                     # Traceability
 │   │   ├── __init__.py
 │   │   └── trail.py
-│   ├── persistence/               # Database layer
+│   ├── persistence/               # SQLAlchemy async data access layer
 │   │   ├── __init__.py            # Re-exports all repos
-│   │   ├── database.py            # Engine + session factory
-│   │   ├── orm_models.py          # SQLAlchemy table definitions
-│   │   ├── base_repo.py           # BaseRepository with error wrapping
-│   │   ├── pattern_repo.py        # PatternRepository
-│   │   ├── feedback_repo.py       # FeedbackRepository
-│   │   ├── qc_history_repo.py     # QCHistoryRepository
-│   │   └── workflow_state_repo.py # WorkflowStateRepository
-│   └── ui/                        # Streamlit HITL
+│   │   ├── database.py            # Async engine + session factory
+│   │   ├── orm_models.py          # 4 tables: patterns, feedback, qc_history, workflow_states
+│   │   ├── base_repo.py           # BaseRepository (execute/flush/commit with error wrapping)
+│   │   ├── pattern_repo.py        # PatternRepository — store/query_by_type (LTM, Phase 16.1)
+│   │   ├── feedback_repo.py       # FeedbackRepository — HITL approve/reject feedback (Phase 16.2)
+│   │   ├── qc_history_repo.py     # QCHistoryRepository — verdict timeline
+│   │   └── workflow_state_repo.py # WorkflowStateRepository — per-step checkpoints (Phase 15)
+│   └── api/                       # FastAPI REST + FastMCP 3.0 server
 │       ├── __init__.py
-│       ├── app.py
-│       ├── theme.py
+│       ├── app.py                 # App factory, lifespan, router registration
+│       ├── dependencies.py        # WorkflowManagerDep, AuditorDep
+│       ├── mcp_server.py          # FastMCP tools: run_workflow, get_workflow_status, get_workflow_result
+│       ├── schemas.py             # All request/response DTOs
+│       ├── workflow_manager.py    # Workflow lifecycle coordinator (contexts, sessions, events)
+│       ├── workflow_hitl.py       # Approve/reject/feedback helpers (Phase 16.2b, extracted for size)
+│       ├── workflow_lifecycle.py  # Start/cleanup helpers (extracted in commit 3a8ee62)
+│       ├── workflow_serializer.py # Domain → DTO conversion
+│       ├── routers/
+│       │   ├── __init__.py
+│       │   ├── workflows.py       # Workflow CRUD, status, dag, audit, data, pipeline, ground_truth (Phase 16.4)
+│       │   ├── hitl.py            # /approve /reject /variables/{var}/override (Phase 16.2b)
+│       │   ├── data.py            # Derived dataset preview endpoint
+│       │   ├── pipeline.py        # /pipeline — current pipeline definition
+│       │   └── specs.py           # Spec listing + content
+│       └── services/
+│           ├── __init__.py
+│           └── override_service.py  # Variable override flow — validates, executes, persists (Phase 16.2b)
+├── frontend/                      # Vite + React 18 + TypeScript SPA
+│   ├── package.json
+│   ├── pnpm-lock.yaml             # Committed in Phase 16.3 for reproducible builds
+│   ├── vitest.config.ts
+│   ├── tsconfig.app.json
+│   └── src/
+│       ├── main.tsx
+│       ├── pages/
+│       │   ├── DashboardPage.tsx
+│       │   └── WorkflowDetailPage.tsx
 │       ├── components/
-│       │   └── dag_view.py
-│       └── pages/
-│           ├── audit.py
-│           └── workflow.py
+│       │   ├── ui/                # shadcn primitives (incl. textarea.tsx added in Phase 16.3a)
+│       │   ├── WorkflowHeader.tsx
+│       │   ├── WorkflowTabs.tsx
+│       │   ├── CodePanel.tsx
+│       │   ├── DAGView.tsx
+│       │   ├── PipelineView.tsx
+│       │   ├── RejectDialog.tsx          # Phase 16.3b
+│       │   ├── ApprovalDialog.tsx        # Phase 16.3b
+│       │   ├── VariableApprovalList.tsx  # Phase 16.3b
+│       │   └── CodeEditorDialog.tsx      # Phase 16.3b
+│       ├── hooks/useWorkflows.ts         # TanStack Query hooks (incl. HITL mutations)
+│       ├── lib/api.ts                    # Typed API client object + fetchJson<T> helper
+│       └── types/api.ts                  # TypeScript interfaces mirroring Pydantic schemas
+├── scripts/                       # Helper scripts (non-pipeline)
+│   ├── README.md
+│   ├── download_data.py           # CDISC pilot data fetcher
+│   ├── validate_adam.py           # Compare derived CSV vs ground truth
+│   ├── mailbox_simple_mock.py     # Deterministic mock responder for simple_mock spec
+│   ├── mailbox_cdisc.py           # Deterministic mock responder for adsl_cdiscpilot01 spec
+│   ├── mcp_run_cdisc.py           # End-to-end CDISC workflow driver via MCP
+│   └── mcp_test_checkpoint.py     # Per-step checkpoint verification via MCP
+├── tools/
+│   └── pre_commit_checks/         # 10 custom arch checks (domain purity, enum discipline, …)
 ├── tests/
 │   ├── conftest.py
-│   ├── unit/
-│   │   ├── test_models.py
-│   │   ├── test_dag.py
-│   │   ├── test_spec_parser.py
-│   │   ├── test_agents.py
-│   │   ├── test_executor.py
-│   │   ├── test_comparator.py
-│   │   ├── test_orchestrator.py
-│   │   ├── test_memory.py
-│   │   └── test_audit.py
+│   ├── unit/                      # Domain, agents, engine, API, persistence, FSM unit tests
 │   └── integration/
-│       └── test_workflow.py
-└── presentation/
+│       ├── test_workflow.py
+│       ├── test_cdisc.py
+│       ├── test_pipeline_equivalence.py
+│       ├── test_long_term_memory.py         # Phase 16.1
+│       ├── test_hitl_flows.py               # Phase 16.2b
+│       └── test_ground_truth_runtime.py     # Phase 16.4
+└── presentation/                  # Slide deck + code review + diagrams
 ```
 
 ## Layer Responsibilities
@@ -595,9 +659,9 @@ homework/
 - **Depends on:** domain/
 
 ### engine/ — Orchestration
-- **Does:** Run the workflow FSM, dispatch agents in DAG order, coordinate persistence and audit
-- **Must NOT:** Define domain models or render UI
-- **Depends on:** domain/, agents/, persistence/, audit/
+- **Does:** Run the YAML-driven `PipelineInterpreter`, dispatch steps via `STEP_EXECUTOR_REGISTRY`, run derivations in DAG-layer order, coordinate persistence and audit via DI-injected repositories on `PipelineContext`.
+- **Must NOT:** Define domain models, render UI, or import `sqlalchemy` directly — the `check_raw_sql_in_engine` pre-push hook enforces this.
+- **Depends on:** domain/, agents/, verification/, audit/. Uses `PatternRepository` and `QCHistoryRepository` only via TYPE_CHECKING annotations — the repos are constructed in `src/factory.py` (outside the engine layer) and injected via `PipelineContext`.
 
 ### verification/ — QC & Double Programming
 - **Does:** Compare primary vs QC outputs, generate discrepancy reports
@@ -610,14 +674,89 @@ homework/
 - **Depends on:** domain/
 
 ### persistence/ — Database Layer
-- **Does:** Encapsulate all DB queries; store/retrieve patterns, feedback, QC history, workflow state
+- **Does:** Encapsulate all DB queries; store/retrieve patterns, feedback, QC history, workflow state. All repos derive from `BaseRepository` and wrap `OperationalError` / `IntegrityError` as `RepositoryError`. `BaseRepository.commit()` is the single commit point used by engine builtins (e.g. `save_patterns`).
 - **Must NOT:** Contain business logic or domain decisions
 - **Depends on:** domain/ (for Pydantic models returned to callers)
 
-### ui/ — Human-in-the-Loop Interface
-- **Does:** Render Streamlit pages, capture human approvals, display results
-- **Must NOT:** Contain derivation logic or direct LLM calls
-- **Depends on:** everything (top of the stack)
+### api/ — FastAPI REST + FastMCP Server
+- **Does:** Expose the pipeline over HTTP (`routers/workflows.py`, `routers/hitl.py`, `routers/data.py`, `routers/pipeline.py`, `routers/specs.py`) and as MCP tools (`mcp_server.py`). Owns the workflow lifecycle via `WorkflowManager` (contexts + sessions + approval events). Service-layer helpers (`services/override_service.py`) handle multi-step business logic; the `api-no-persistence` import-linter contract is relaxed here via documented `ignore_imports` so the manager can own the session lifecycle.
+- **Must NOT:** Contain derivation logic or direct LLM calls — those live in the engine and agents layers.
+- **Depends on:** everything (top of the stack).
+
+## Data Layer — Database Schema
+
+The engine runs against SQLite in development (`cdde.db` in the repo root) and is designed to swap to PostgreSQL in production by changing `DATABASE_URL` — nothing else changes. All four tables are defined in `src/persistence/orm_models.py` using SQLAlchemy 2.0 `Mapped[]` style.
+
+### `patterns` — Approved derivation cache (Phase 16.1)
+
+Populated by the `save_patterns` builtin after the `human_review` HITL gate. Queried by the `query_patterns` PydanticAI tool so the coder agent can adapt prior approved code instead of regenerating from scratch. **This is the long-term memory loop**: every human-approved derivation feeds future runs.
+
+| Column | Type | Index | Purpose |
+|---|---|---|---|
+| `id` | `int` | PK | Auto-increment |
+| `variable_type` | `varchar(100)` | ✅ (btree) | Variable name the pattern solves for (lookup key) |
+| `spec_logic` | `text` | — | Original rule logic from the spec |
+| `approved_code` | `text` | — | The pandas expression the human approved |
+| `study` | `varchar(100)` | — | Study identifier (provenance) |
+| `approach` | `varchar(200)` | — | Short description of the coder's strategy |
+| `created_at` | `timestamp with tz` | — | UTC (datetime-aware via `check_datetime_patterns`) |
+
+Populated by: `_builtin_save_patterns` (`src/engine/step_builtins.py`)
+Read by: `query_patterns` tool (`src/agents/tools/query_patterns.py`)
+
+### `feedback` — HITL feedback capture (Phase 16.2)
+
+Every human action at a HITL gate (approve, reject, override) writes here. Closes the feedback loop between reviewer intent and downstream agent behavior; future phases can use this for fine-tuning datasets or for surfacing "commonly rejected variables" on the dashboard.
+
+| Column | Type | Index | Purpose |
+|---|---|---|---|
+| `id` | `int` | PK | Auto-increment |
+| `variable` | `varchar(100)` | ✅ (btree) | Variable the feedback applies to (`""` for workflow-level reject) |
+| `feedback` | `text` | — | Free-text reviewer note or rejection reason |
+| `action_taken` | `varchar(200)` | — | `"approved"` / `"rejected"` / `"overridden"` |
+| `study` | `varchar(100)` | — | Study identifier (provenance) |
+| `created_at` | `timestamp with tz` | — | UTC |
+
+Populated by: `approve_with_feedback_impl` + `reject_workflow_impl` (`src/api/workflow_hitl.py`), `override_variable` (`src/api/services/override_service.py`)
+
+### `qc_history` — QC verdict timeline (Phase 16.1)
+
+Companion to `patterns` — stores the coder-vs-QC comparison verdict for every approved derivation. Enables trend analysis ("how often does the QC programmer match the coder?") and drives the `qc_history_repo.get_stats()` helper used in tests.
+
+| Column | Type | Index | Purpose |
+|---|---|---|---|
+| `id` | `int` | PK | Auto-increment |
+| `variable` | `varchar(100)` | ✅ (btree) | Variable the verdict applies to |
+| `verdict` | `varchar(50)` | — | `QCVerdict` enum value (`match` / `mismatch`) |
+| `coder_approach` | `varchar(200)` | — | Coder's strategy label |
+| `qc_approach` | `varchar(200)` | — | QC programmer's (different) strategy label |
+| `study` | `varchar(100)` | — | Study identifier (provenance) |
+| `created_at` | `timestamp with tz` | — | UTC |
+
+Populated by: `_builtin_save_patterns` (`src/engine/step_builtins.py`)
+Read by: `QCHistoryRepository.get_stats()` (tests + future dashboard)
+
+### `workflow_states` — Per-step checkpoint (Phase 15)
+
+Powers the restart-from-last-checkpoint story. After every step completes, `run_with_checkpoint` upserts the full `PipelineContext` JSON snapshot keyed by `workflow_id`, and the FSM state name. On restart the row is rehydrated and the interpreter resumes from the next step. `workflow_id` has a unique index so upserts are fast and consistent.
+
+| Column | Type | Index | Purpose |
+|---|---|---|---|
+| `id` | `int` | PK | Auto-increment |
+| `workflow_id` | `varchar(20)` | ✅ unique | Workflow identifier (short UUID, one row per workflow) |
+| `state_json` | `text` | — | Serialized `PipelineContext` snapshot |
+| `fsm_state` | `varchar(50)` | — | Current FSM state name (debugging / observability) |
+| `updated_at` | `timestamp with tz` | — | Checkpoint timestamp (UTC) |
+
+Populated by: `run_with_checkpoint` in the engine, called after every step completion
+Read by: workflow restart flow in `WorkflowManager`, the checkpoint observability script `scripts/mcp_test_checkpoint.py`
+
+### Retention & migration notes
+
+- **Local dev:** SQLite file at `./cdde.db` — zero setup, committed to `.gitignore`.
+- **Production target:** PostgreSQL — only the `DATABASE_URL` changes. `src/persistence/database.py` uses `create_async_engine`, which accepts either `sqlite+aiosqlite://` or `postgresql+asyncpg://`.
+- **Migrations:** Alembic is the intended tool (not wired in yet — homework scope). Schema changes would land in `alembic/versions/` and be applied by the container at startup.
+- **Retention:** `patterns` and `qc_history` are append-only — no deletion. `workflow_states` is upsert-by-workflow-id (one row per run; resuming overwrites). `feedback` is append-only. For a production deployment with long-running workflows, `workflow_states` rows older than N days could be archived to a cold-storage bucket; this is out of scope for the homework.
 
 ## Data Flow — Typical Derivation Lifecycle
 

@@ -28,9 +28,11 @@
 | Phase 16.3.0: Frontend test infrastructure | ✅ Complete | 0 (ts) | 100% |
 | Phase 16.3a: HITL frontend plumbing | ✅ Complete | 0 (ts) | 100% |
 | Phase 16.3b: HITL frontend dialogs + wiring | ✅ Complete | 13 (ts) | 100% |
+| Phase 16.4: Ground truth comparison at runtime | ✅ Complete | 297 (py) | 100% |
+| Phase 16.5: Cleanup + docs (Part A + Part B) | ✅ Complete (uncommitted) | 297 (py) / 13 (ts) | 100% |
 
-**Overall:** 20/20 phases complete (100%) ✅
-**Backend:** 292 tests | **Frontend:** 13 tests
+**Overall:** 22/22 phases complete (100%) ✅
+**Backend:** 297 tests | **Frontend:** 13 tests | **Total:** 310 tests
 
 ---
 

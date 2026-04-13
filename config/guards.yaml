@@ -1,0 +1,41 @@
+# AgentLens guard rules — enforced by the proxy between agents and the LLM.
+#
+# This file is a DESIGN ARTIFACT. The CDDE engine itself does not read these
+# rules; they are consumed by the AgentLens proxy (external to this repo) when
+# deployed in production. Included here so the pipeline config directory is
+# self-documenting and slides/design doc can reference it directly.
+#
+# Three rule categories:
+#   1. PII block — reject prompts containing raw patient data (USUBJID etc.)
+#   2. Max tokens — enforce per-request budget
+#   3. Blocked patterns — regex against outgoing code (e.g. __import__, eval)
+
+version: "1.0"
+
+rules:
+  - name: pii_block
+    description: "Reject any prompt containing USUBJID, SUBJID, or raw date-of-birth patterns."
+    action: reject
+    patterns:
+      - "USUBJID[^a-zA-Z_]"
+      - "\\bDOB\\b"
+      - "\\b\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\b"  # ISO 8601 with time
+
+  - name: max_tokens_per_request
+    description: "Cap prompt + completion at 8k tokens to prevent runaway context."
+    action: truncate
+    limit: 8000
+
+  - name: blocked_code_tokens
+    description: "Reject generated code containing dangerous builtins."
+    action: reject
+    applies_to: completion
+    patterns:
+      - "\\b__import__\\b"
+      - "\\bexec\\s*\\("
+      - "\\beval\\s*\\("
+      - "\\bopen\\s*\\("
+      - "\\bsubprocess\\b"
+
+# Future: per-study overrides (compliance level, allowed LLM models).
+# Loaded as ConfigMaps in Kubernetes (see ARCHITECTURE.md §Scenario B).

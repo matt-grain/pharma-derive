@@ -8,31 +8,37 @@
 
 CDDE automates the SDTM-to-ADaM derivation step of the clinical trial data pipeline. The system reads a YAML transformation specification and structured SDTM data (XPT format), dispatches five specialized AI agents to generate, verify, and audit derivation code, and outputs analysis-ready ADaM datasets with a complete audit trail.
 
-The architecture follows a strict layered design enforced by 19 import-linter contracts:
+The backend follows a strict layered design enforced by 19 import-linter contracts plus 10 custom AST-based pre-commit checks:
 
 ```
-domain/  (pure Python: models, DAG, spec parsing)
+domain/          (pure Python: models, DAG, spec parsing, ground truth comparison)
    ↑
-agents/  (PydanticAI agent definitions + shared tools)
+agents/          (PydanticAI agent definitions + shared tools)
    ↑
-engine/  (orchestrator FSM, DAG execution, LLM gateway)
+engine/          (YAML pipeline interpreter, DAG execution, step executors)
    ↑
-ui/      (Streamlit HITL approval interface)
+verification/ + audit/ + persistence/
+   ↑
+api/             (FastAPI REST + FastMCP 3.0 server)
 ```
+
+The frontend is a separate **Vite + React 18 + TypeScript SPA** in `frontend/`, consuming the FastAPI backend via a typed TanStack Query client. The two services are independently deployable and compose via Docker (see §8).
 
 **Key design choice:** PydanticAI for typed agent abstractions (`Agent[DepsType, OutputType]`) + custom Python async orchestration for clinical workflow control. We evaluated CrewAI but rejected it: `async_execution` has known bugs (PR #2466), `human_input` is CLI-only, and structured output is bolted-on rather than native. PydanticAI passed all five orchestration patterns in prototype validation (parallel agents via `asyncio.gather` arrived within 0.01s).
 
 ```mermaid
 graph TB
-    UI["Streamlit UI<br/>(HITL approval gates)"]
-    Engine["Orchestration Engine<br/>(WorkflowFSM + DAG executor)"]
+    SPA["React SPA<br/>(HITL dialogs, DAG view, data preview)"]
+    API["FastAPI + FastMCP<br/>(REST + MCP tools)"]
+    Engine["Pipeline Interpreter<br/>(YAML-driven, DAG layer dispatch)"]
     Agents["PydanticAI Agents<br/>(5 agents, typed I/O)"]
     Gateway["LLM Gateway<br/>(OpenAI-compatible endpoint)"]
-    Memory["Memory Layer<br/>(short-term JSON + long-term SQLite)"]
+    Memory["Memory Layer<br/>(SQLite: patterns, feedback, qc_history, workflow_states)"]
     Lens["AgentLens Proxy<br/>(traces + guards)"]
     LLM["LLM API<br/>(Claude / Azure OpenAI)"]
 
-    UI --> Engine
+    SPA --> API
+    API --> Engine
     Engine --> Agents
     Engine --> Memory
     Agents --> Gateway
@@ -64,35 +70,39 @@ All agents produce validated Pydantic output types. PydanticAI retries automatic
 
 ## 3. Orchestration
 
-Clinical derivation workflows cannot use off-the-shelf orchestration. The five patterns we implement in `src/engine/orchestrator.py`:
+Clinical derivation workflows cannot use off-the-shelf orchestration, and hardcoding one fixed workflow in Python would leave no room for per-study variation. CDDE uses a **YAML-driven pipeline interpreter** (`src/engine/pipeline_interpreter.py`): each pipeline is a YAML file in `config/pipelines/` listing step definitions, and the interpreter topologically sorts the DAG of steps and dispatches each one through a typed executor from `STEP_EXECUTOR_REGISTRY`. Adding a new workflow variant is a YAML edit, not a code change.
 
-| Pattern | Where Used | Why Clinical Workflows Need It |
-|---------|-----------|-------------------------------|
-| **Sequential** | Spec -> DAG -> Derive -> Audit | Each phase depends on the previous |
-| **Fan-out / Fan-in** | Independent variables in a DAG layer | Performance: derive AGE_GROUP and TRTDUR concurrently |
-| **Concurrent + Compare** | Coder + QC on same variable | Double programming requires isolated parallel execution |
-| **Retry + Escalation** | QC mismatch -> Debugger -> human | Max 2 Debugger attempts before human escalation |
-| **HITL Gate** | 4 approval points | Regulatory workflows require human sign-off |
+Five orchestration patterns are implemented as step types:
 
-The workflow is driven by a finite state machine (`python-statemachine`):
+| Pattern | Step type | Where used | Why clinical workflows need it |
+|---|---|---|---|
+| **Sequential** | `builtin`, `agent` | parse_spec → build_dag → audit → export | Each phase depends on the previous |
+| **Fan-out / fan-in** | `parallel_map` | `derive_variables` over DAG layers | Derive AGEGR1 and TRTDUR concurrently |
+| **Concurrent + compare** | inside `parallel_map` | Coder + QC on same variable | Double programming requires isolated parallel execution |
+| **Retry + escalation** | inside `derivation_runner` | QC mismatch → Debugger → human | Max 2 Debugger attempts before human escalation |
+| **HITL gate** | `hitl_gate` | `human_review` (and `spec_approval` / `final_signoff` in enterprise mode) | Regulatory workflows require human sign-off |
+
+Three pipelines ship in `config/pipelines/`: **`clinical_derivation.yaml`** (8 steps, 1 deep HITL gate, default), **`express.yaml`** (4 steps, no QC, no HITL — rapid prototyping), and **`enterprise.yaml`** (9 steps, 3 HITL gates, target for 21 CFR Part 11 regulated deployments).
+
+Workflow state is tracked by a lightweight `PipelineFSM` whose states are **auto-derived from the step IDs of whichever pipeline is running** — so `clinical_derivation.yaml` and `enterprise.yaml` get distinct FSM topologies without any code duplication. A typical `clinical_derivation` run advances through:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> CREATED
-    CREATED --> SPEC_REVIEW : upload spec + data
-    SPEC_REVIEW --> DAG_BUILT : spec approved
-    DAG_BUILT --> DERIVING : start derivations
-    DERIVING --> VERIFYING : variable derived
-    VERIFYING --> DERIVING : QC pass, next variable
-    VERIFYING --> DEBUGGING : QC mismatch
-    DEBUGGING --> DERIVING : debugger fixed
-    DEBUGGING --> DEBUGGING : retry (max 2)
-    DERIVING --> REVIEW : all variables done
-    REVIEW --> AUDITING : human approved
-    AUDITING --> COMPLETED : audit signed off
+    [*] --> parse_spec
+    parse_spec --> build_dag
+    build_dag --> derive_variables
+    derive_variables --> ground_truth_check : all variables derived
+    ground_truth_check --> human_review : report attached
+    human_review --> save_patterns : approve (w/ per-variable feedback)
+    human_review --> failed : reject (with reason)
+    save_patterns --> audit
+    audit --> export
+    export --> completed
+    failed --> [*]
+    completed --> [*]
 ```
 
-Every state transition is logged via `on_enter_state` callbacks and recorded in the append-only audit trail. Parallel dispatch uses `asyncio.gather` at the orchestration layer -- not the agent framework -- because the concurrency topology (which agents run in parallel) is domain logic that belongs in the orchestrator.
+Every state transition emits an `AuditAction` event (`STEP_STARTED`, `STEP_COMPLETED`, `HITL_GATE_WAITING`, `HUMAN_APPROVED`, `HUMAN_REJECTED`, `HUMAN_OVERRIDE`, `WORKFLOW_FAILED`) and is persisted by `WorkflowStateRepository` per step, so a run that dies halfway can be resumed from the last completed checkpoint. Parallel dispatch uses `asyncio.gather` inside `ParallelMapStepExecutor` — the concurrency topology (which variables run in parallel) is derived from the DAG's topological layers at runtime.
 
 ---
 
@@ -120,16 +130,21 @@ Each DAG node (`src/domain/models.py: DAGNode`) carries: derivation rule, genera
 
 ## 5. Human-in-the-Loop
 
-Four HITL gates in the Streamlit UI (`src/ui/`), each backed by database-persisted approval state:
+CDDE deliberately favours **depth over count** for HITL gates — the clinical_derivation pipeline has **one** gate (`human_review`) but three distinct actions, each backed by a REST endpoint and a React dialog, each persisting to `FeedbackRepository`:
 
-| Gate | Trigger | Human Sees | Actions |
-|------|---------|-----------|---------|
-| **1. Spec Review** | After Spec Interpreter | Extracted rules + flagged ambiguities | Approve / edit rules / add missing rules |
-| **2. QC Dispute** | Unresolved QC mismatch | Both implementations + Debugger analysis | Pick Coder / Pick QC / manual override |
-| **3. Final Review** | All derivations complete | Derived dataset + QC summary | Approve / reject specific variables |
-| **4. Audit Sign-off** | After Auditor | Lineage report + compliance checklist | Sign off / request changes |
+| Action | Endpoint | What the reviewer does | What gets persisted |
+|---|---|---|---|
+| **Approve with feedback** | `POST /workflows/{id}/approve` | Opens `ApprovalDialog`, sees per-variable checkboxes defaulting to approved, unchecks any variable that needs rework, optionally adds a free-text note | One `FeedbackRow` per `VariableDecision`, `action_taken` = `approved` / `rejected` per row |
+| **Reject with reason** | `POST /workflows/{id}/reject` | Opens `RejectDialog`, enters a mandatory reason | Workflow-level `FeedbackRow`, `HUMAN_REJECTED` audit event; FSM fails cleanly via `WorkflowRejectedError` (inherits from `Exception`, not `BaseException`) |
+| **Override code** | `POST /workflows/{id}/variables/{var}/override` | Opens `CodeEditorDialog`, edits the approved pandas expression, provides a mandatory change reason | New code is executed on `derived_df` *before* state mutation; on success the DAG node, audit trail, and `FeedbackRow` are all committed in one transaction; on failure the original code is preserved and the dialog shows the 400 response inline |
 
-Human feedback is captured and stored in long-term memory. When a human corrects a derivation (e.g., changes `>=` to `>`), that correction is stored with context and surfaced to agents in future runs as a reference implementation.
+**Why one deep gate, not four shallow ones:** every HITL gate is a reviewer context switch. Clinical SMEs are expensive; their time is the bottleneck. A single rich dialog where the reviewer scans all variables at once, ticks or unticks in bulk, and confirms is cheaper to operate than four separate interruptions. The depth-over-count ADR (`decisions.md`, 2026-04-13) walks through the alternatives considered.
+
+**Enterprise mode is different.** `enterprise.yaml` keeps 3 gates (`spec_approval`, `variable_review`, `final_signoff`) for 21 CFR Part 11 deployments where regulation mandates separation of sign-off duties. Same engine, different pipeline YAML — no code fork.
+
+**Rejection path is the tricky one.** Early design tried `task.cancel()` on reject, which raises `asyncio.CancelledError` — a `BaseException`, not an `Exception`. The existing `_run_and_cleanup`'s `except Exception` would have leaked the task. The shipped solution uses a flag-pattern: `WorkflowManager.reject_workflow` sets `ctx.rejection_requested = True` and `ctx.rejection_reason`, writes feedback, then releases the HITL event. The `HITLGateStepExecutor` wakes from `event.wait()`, checks the flag, and raises `WorkflowRejectedError(reason)` — which inherits from `CDDEError → Exception` and routes through the existing fail path with zero new error handling. One integration test specifically verifies the FSM reaches `failed` cleanly.
+
+Human feedback is stored alongside the approved patterns in long-term memory (next section). When a reviewer overrides a derivation (e.g., changes `>=` to `>`), that correction is persisted with the original reason and becomes a candidate reference implementation in future runs of the same variable type.
 
 ---
 
@@ -149,14 +164,20 @@ The audit trail is append-only (no record deletion) and exports to JSON for prog
 
 ## 7. Memory
 
-| Type | Storage | Scope | What Is Stored |
-|------|---------|-------|---------------|
-| **Short-term** | JSON per run | Single workflow | Workflow FSM state, intermediate DataFrames, pending HITL approvals |
-| **Long-term** | SQLite (SQLAlchemy async) | Cross-run | Validated derivation patterns, human feedback, QC history, reusable snippets |
+| Type | Storage | Scope | What is stored |
+|---|---|---|---|
+| **Short-term (working)** | `PipelineContext` in-memory + `workflow_states` table (JSON per step) | Single workflow | DAG, `derived_df`, step outputs, rejection flags, approval events. Persisted per step so runs can resume from the last checkpoint. |
+| **Long-term (validated)** | `patterns` + `feedback` + `qc_history` tables | Cross-run | Approved derivation code, reviewer notes, QC verdicts |
 
-**Retrieval:** Before generating code, the Coder agent's tools query long-term memory for matching patterns by variable type and spec similarity. Matches are injected into the prompt as reference implementations -- context, not constraint. New patterns that pass QC are stored automatically.
+**Retrieval (concrete implementation):** The Coder and QC agents each have a `query_patterns` PydanticAI tool (`src/agents/tools/query_patterns.py`). Before writing code, the coder calls this tool; it looks up `PatternRepository.query_by_type(variable_type, limit=3)` and returns up to 3 approved patterns (code + study + approach label) from prior runs. The LLM is instructed to adapt a good match rather than regenerate from scratch. The QC programmer may call the same tool but its system prompt requires a *different* approach — maintaining QC independence.
 
-**Production path:** The repository interface (`src/persistence/`) abstracts storage. Switching from `sqlite+aiosqlite:///cdde.db` to `postgresql+asyncpg://...` requires only a `DATABASE_URL` environment variable change -- zero code changes.
+**Write path:** The `save_patterns` builtin runs **after** the `human_review` HITL gate and **before** `audit`. It iterates the DAG and writes one `PatternRow` + one `QCHistoryRow` per `DerivationStatus.APPROVED` node, then commits once via `BaseRepository.commit()`. `save_patterns` is deliberately **omitted from `express.yaml`** — no HITL gate means no human validation, and auto-approved express output would pollute the memory.
+
+**Smoke test evidence:** Running `simple_mock.yaml` twice end-to-end against the live backend + mailbox responder produced `+2` rows per variable in `patterns` and `+8` rows in `qc_history` — one row per approved variable per run, with distinct `approach` strings confirming fresh writes. The FSM timeline explicitly shows `db_fsm=save_patterns` between `human_review` and `audit`. The long-term memory loop is observably real, not just test-verified.
+
+**Ground truth as verification memory:** Phase 16.4 added a `compare_ground_truth` builtin that loads the reference ADaM XPT for the study (declared in `spec.validation.ground_truth`), inner-joins on `spec.source.primary_key` (USUBJID for CDISC), and compares each derived variable against the reference using the existing `compare_results` helper with the configured numeric tolerance. A `GroundTruthReport` attached to `PipelineContext` is surfaced via `GET /workflows/{id}/ground_truth`. This closes the gap between "coder matches QC" (double programming) and "output matches the regulator's expected result".
+
+**Production path:** The repository interface (`src/persistence/`) abstracts storage. Switching from `sqlite+aiosqlite:///cdde.db` to `postgresql+asyncpg://...` requires only a `DATABASE_URL` environment variable change — zero code changes.
 
 ---
 
@@ -164,11 +185,12 @@ The audit trail is append-only (no record deletion) and exports to JSON for prog
 
 ### Key Trade-offs
 
-| Decision | Trade-off | Our Choice |
-|----------|----------|------------|
-| **Automation vs. control** | Fully autonomous derivation vs. human gates at every step | 4 HITL gates at critical points; auto-approve when QC matches |
-| **LLM vs. rules** | Pure LLM code generation vs. deterministic rule engine | Hybrid: LLM generates, deterministic comparator verifies, guards enforce constraints |
-| **Flexibility vs. compliance** | Adaptable prompts vs. locked-down workflows | Same engine, different guard configs per study -- dial compliance per regulatory context |
+| Decision | Trade-off | Our choice |
+|---|---|---|
+| **Automation vs. control** | Fully autonomous derivation vs. human gates at every step | One deep HITL gate in clinical mode (3 actions: approve-with-feedback / reject-with-reason / code override); 3 separated gates in enterprise mode for 21 CFR Part 11 — same engine, different pipeline YAML |
+| **LLM vs. rules** | Pure LLM code generation vs. deterministic rule engine | Hybrid: LLM generates, deterministic comparator verifies, ground-truth comparison validates against the regulator's reference, guards enforce constraints |
+| **Flexibility vs. compliance** | Adaptable prompts vs. locked-down workflows | Pipelines are YAML — one engine, three ship-ready configs (express / clinical / enterprise), and per-study guard configs dial compliance independently |
+| **Pipeline in code vs. YAML** | Hardcoded `run_workflow()` vs. YAML step definitions + executor registry | YAML. Adding a new workflow = new file in `config/pipelines/`, zero code changes. This is what lets us ship three pipelines from one engine. |
 
 ### Data Security: Dual-Dataset Architecture
 
@@ -177,14 +199,14 @@ Agents never see patient data. The LLM receives schema metadata + a synthetic re
 ### Production Path
 
 | Prototype | Production |
-|-----------|------------|
-| SQLite | PostgreSQL (same SQLAlchemy models) |
+|---|---|
+| SQLite | PostgreSQL (same SQLAlchemy async models) |
 | External Claude API | Azure OpenAI in Sanofi VNet (private endpoint) |
-| Single-process | Docker Compose (6 containers: nginx, Streamlit, FastAPI, PostgreSQL, AgentLens, Grafana) |
+| Single-process dev server | Docker Compose (6 containers: nginx, React SPA, FastAPI + FastMCP, PostgreSQL, AgentLens, Grafana/Loki) |
 | Docker Compose | Kubernetes (same images, Helm chart, HPA auto-scaling) |
-| Single `guards.yaml` | ConfigMap per study (different compliance levels) |
+| Single `config/guards.yaml` | ConfigMap per study (different compliance levels) |
 
-The backend is stateless -- all state lives in PostgreSQL. N replicas behind nginx give horizontal scaling with zero code changes.
+The backend is stateless -- all state lives in PostgreSQL (patterns, feedback, qc_history, workflow_states). N replicas behind nginx give horizontal scaling with zero code changes. The React SPA is served as a static bundle from nginx.
 
 ---
 
@@ -198,7 +220,7 @@ The backend is stateless -- all state lives in PostgreSQL. N replicas behind ngi
 
 ### Quality Evidence
 
-148 tests passing, 85% coverage on core logic, pyright strict mode with 0 errors, 19 import-linter contracts enforcing layer boundaries, 10 custom AST-based pre-commit checks (domain purity, patient data leak detection, datetime safety, enum discipline, LLM gateway enforcement).
+**310 tests passing** (297 backend + 13 frontend component tests), pyright strict mode with 0 errors, ruff clean, **19 import-linter contracts** enforcing layer boundaries, **10 custom AST-based pre-commit checks** (domain purity, patient data leak detection, datetime safety, enum discipline, LLM gateway enforcement, repository DI enforcement, raw-SQL-in-engine ban, file/class size limits, UI-exception-leak prevention). All 18 pre-push hooks are green on `feat/yaml-pipeline` and run automatically before every push.
 
 ---
 

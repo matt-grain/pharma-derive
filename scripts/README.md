@@ -8,7 +8,6 @@ of the derivation pipeline without a real LLM.
 | Script | Purpose |
 |---|---|
 | `download_data.py` | Download CDISC Pilot Study SDTM + ADaM XPT files from the PhUSE GitHub repo into `data/` |
-| `generate_diagrams.py` | Generate Mermaid `.mmd` files (FSM state diagram + orchestration sequence) into `presentation/diagrams/` |
 | `validate_adam.py` | Compare a workflow's derived CSV against the CDISC ground truth ADaM XPT; reports per-variable match/mismatch stats |
 
 Run any of these with `uv run python scripts/<name>.py`.

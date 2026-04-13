@@ -52,7 +52,6 @@ class SourceConfig(BaseModel, frozen=True):
 class SyntheticConfig(BaseModel, frozen=True):
     """Optional synthetic reference dataset config."""
 
-    path: str | None = None
     rows: int = 15
 
 
