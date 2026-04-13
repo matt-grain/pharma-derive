@@ -17,8 +17,8 @@ class TestStandardPipeline:
     def test_standard_pipeline_name(self, pipeline: PipelineDefinition) -> None:
         assert pipeline.name == "clinical_derivation"
 
-    def test_standard_pipeline_has_seven_steps(self, pipeline: PipelineDefinition) -> None:
-        assert len(pipeline.steps) == 7
+    def test_standard_pipeline_has_eight_steps(self, pipeline: PipelineDefinition) -> None:
+        assert len(pipeline.steps) == 8  # ground_truth_check step added in Phase 16.4
 
     def test_standard_pipeline_has_hitl_gate(self, pipeline: PipelineDefinition) -> None:
         gate_steps = [s for s in pipeline.steps if s.type == StepType.HITL_GATE]

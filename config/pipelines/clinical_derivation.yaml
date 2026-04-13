@@ -25,9 +25,15 @@ pipeline:
         qc_agent: qc_programmer
         debugger_agent: debugger
 
+    - id: ground_truth_check
+      type: builtin
+      builtin: compare_ground_truth
+      depends_on: [derive_variables]
+      description: "Compare derived output against reference ADaM (if configured)"
+
     - id: human_review
       type: hitl_gate
-      depends_on: [derive_variables]
+      depends_on: [ground_truth_check]
       config:
         message: "Review all derivations — inspect DAG, code, and QC results before audit"
       description: "Human-in-the-loop approval gate"

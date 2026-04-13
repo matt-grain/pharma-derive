@@ -14,6 +14,7 @@ from src.api.dependencies import (
 from src.api.schemas import (
     AuditRecordOut,
     DAGNodeOut,
+    GroundTruthReportResponse,
     SourceColumnOut,
     WorkflowCreateRequest,
     WorkflowCreateResponse,
@@ -130,6 +131,23 @@ async def get_workflow_result(
         )
 
     raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
+
+
+@router.get("/{workflow_id}/ground_truth", response_model=GroundTruthReportResponse, status_code=200)
+async def get_ground_truth(
+    workflow_id: str,
+    manager: WorkflowManagerDep,
+) -> GroundTruthReportResponse:
+    """Return the ground-truth comparison report for a workflow, if the step has run."""
+    ctx = manager.get_context(workflow_id)
+    if ctx is None:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
+    if ctx.ground_truth_report is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Ground truth check has not been run for this workflow",
+        )
+    return GroundTruthReportResponse.model_validate(ctx.ground_truth_report.model_dump())
 
 
 @router.get("/{workflow_id}/audit", response_model=list[AuditRecordOut], status_code=200)

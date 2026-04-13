@@ -80,7 +80,7 @@ def test_load_default_pipeline_parses_without_error() -> None:
 
     # Assert
     assert pipeline.name == "clinical_derivation"
-    assert len(pipeline.steps) == 7
+    assert len(pipeline.steps) == 8  # updated: ground_truth_check step added in Phase 16.4
     step_ids = [s.id for s in pipeline.steps]
     assert "parse_spec" in step_ids
     assert "human_review" in step_ids

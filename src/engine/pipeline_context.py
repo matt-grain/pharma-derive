@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
     from src.audit.trail import AuditTrail
     from src.domain.dag import DerivationDAG
+    from src.domain.ground_truth import GroundTruthReport
     from src.domain.models import TransformationSpec
     from src.persistence.pattern_repo import PatternRepository
     from src.persistence.qc_history_repo import QCHistoryRepository
@@ -31,6 +32,7 @@ class PipelineContext:
     output_dir: Path | None = None
     pattern_repo: PatternRepository | None = None
     qc_history_repo: QCHistoryRepository | None = None
+    ground_truth_report: GroundTruthReport | None = None
     rejection_requested: bool = False
     rejection_reason: str = ""
 

@@ -156,3 +156,24 @@ class VariableOverrideRequest(BaseModel, frozen=True):
 
     new_code: str = Field(min_length=1)
     reason: str = Field(min_length=1)
+
+
+class VariableGroundTruthResponse(BaseModel, frozen=True):
+    """Per-variable ground-truth comparison result at the HTTP boundary."""
+
+    variable: str
+    verdict: str  # serialized StrEnum value — acceptable at DTO boundary
+    match_count: int
+    mismatch_count: int
+    total_rows: int
+    mismatch_sample: list[str] = []
+    error: str | None = None
+
+
+class GroundTruthReportResponse(BaseModel, frozen=True):
+    """Ground-truth comparison report returned by GET /workflows/{id}/ground_truth."""
+
+    ground_truth_path: str
+    total_variables: int
+    matched_variables: int
+    results: list[VariableGroundTruthResponse]
