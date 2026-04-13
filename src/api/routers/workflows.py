@@ -57,21 +57,6 @@ async def list_workflows(manager: WorkflowManagerDep) -> list[WorkflowStatusResp
     return [_build_status_response(wf_id, manager) for wf_id in manager.list_workflow_ids()]
 
 
-@router.post("/{workflow_id}/approve", response_model=WorkflowStatusResponse, status_code=200)
-async def approve_workflow(workflow_id: str, manager: WorkflowManagerDep) -> WorkflowStatusResponse:
-    """Approve a workflow at the HITL review gate — releases it to proceed to audit."""
-    ctx = manager.get_context(workflow_id)
-    if ctx is None:
-        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
-
-    event = manager.get_approval_event(workflow_id)
-    if event is None:
-        raise HTTPException(status_code=409, detail="Workflow is not awaiting approval")
-
-    event.set()
-    return _build_status_response(workflow_id, manager)
-
-
 @router.delete("/{workflow_id}", status_code=204)
 async def delete_workflow(workflow_id: str, manager: WorkflowManagerDep) -> None:
     """Delete a workflow from history. In-memory state, DB row, and output files."""

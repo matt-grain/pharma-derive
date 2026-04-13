@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class WorkflowCreateRequest(BaseModel, frozen=True):
@@ -128,3 +128,31 @@ class HealthResponse(BaseModel, frozen=True):
     status: str
     version: str
     workflows_in_progress: int
+
+
+class VariableDecision(BaseModel, frozen=True):
+    """Per-variable approval decision from the human reviewer."""
+
+    variable: str
+    approved: bool
+    note: str | None = None
+
+
+class ApprovalRequest(BaseModel, frozen=True):
+    """Optional payload for POST /approve — defaults to approve-all if omitted."""
+
+    variables: list[VariableDecision] = []
+    reason: str | None = None
+
+
+class RejectionRequest(BaseModel, frozen=True):
+    """Required payload for POST /reject."""
+
+    reason: str = Field(min_length=1)
+
+
+class VariableOverrideRequest(BaseModel, frozen=True):
+    """Payload for POST /variables/{var}/override."""
+
+    new_code: str = Field(min_length=1)
+    reason: str = Field(min_length=1)

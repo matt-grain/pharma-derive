@@ -186,6 +186,7 @@ forbidden_modules = src.persistence
 # - workflow_manager: owns session lifecycle (Repository/Unit-of-Work pattern) —
 #   mirrors how a service would own a DBDep chain in a typical FastAPI DI setup.
 # - factory: infrastructure wiring (create_pipeline_orchestrator), not business logic.
+# - override_service: api-layer service, allowed to import feedback_repo via DI.
 # Routers MUST NOT import persistence — all router-level access goes through
 # WorkflowManager, which is re-verified by the delete_workflow endpoint fix (no
 # init_db/Session/WorkflowStateRepository in routers/workflows.py).
@@ -200,3 +201,5 @@ ignore_imports =
     src.engine.pipeline_context -> src.persistence.qc_history_repo
     src.engine.derivation_runner -> src.persistence.pattern_repo
     src.agents.deps -> src.persistence.pattern_repo
+    src.api.workflow_hitl -> src.persistence.feedback_repo
+    src.api.services.override_service -> src.persistence.feedback_repo

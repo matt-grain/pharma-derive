@@ -9,6 +9,9 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from src.api.schemas import (
+    ApprovalRequest,  # noqa: TC001 — used at runtime in approve_with_feedback method body (payload.variables)
+)
 from src.api.workflow_lifecycle import (
     persist_audit_trail,
     persist_error_state,
@@ -97,6 +100,7 @@ class WorkflowManager:
             self._results[wf_id] = result
             logger.info("Workflow {wf_id} completed successfully", wf_id=wf_id)
             return result
+
         except Exception as exc:
             logger.exception("Workflow {wf_id} failed", wf_id=wf_id)
             record_failure_audit(ctx, exc, interpreter.current_step)
@@ -201,12 +205,7 @@ class WorkflowManager:
         return new_id
 
     async def delete_workflow(self, workflow_id: str) -> None:
-        """Remove a workflow from in-memory stores, DB state, and output files.
-
-        File cleanup lives here (rather than at the router layer) so that all callers
-        — the ``DELETE /workflows/{id}`` endpoint AND the ``rerun_workflow`` flow that
-        drops the old run — get the same cleanup behavior.
-        """
+        """Remove a workflow from in-memory stores, DB state, and output files."""
         from src.persistence.database import init_db
         from src.persistence.workflow_state_repo import WorkflowStateRepository
 
@@ -227,6 +226,37 @@ class WorkflowManager:
             path = output_dir / f"{workflow_id}{suffix}"
             if path.exists():
                 path.unlink()
+
+    def get_session(self, workflow_id: str) -> AsyncSession | None:
+        """Return the live AsyncSession for an active workflow, or None."""
+        return self._sessions.get(workflow_id)
+
+    async def approve_with_feedback(
+        self,
+        workflow_id: str,
+        payload: ApprovalRequest | None,
+    ) -> None:
+        """Set the HITL approval event AND persist per-variable feedback to the repository."""
+        from src.api.workflow_hitl import approve_with_feedback_impl
+
+        event = self.get_approval_event(workflow_id)
+        if event is None:
+            raise KeyError("not_awaiting_approval")
+        await approve_with_feedback_impl(
+            event, self._sessions.get(workflow_id), self._contexts.get(workflow_id), payload
+        )
+
+    async def reject_workflow(self, workflow_id: str, reason: str) -> None:
+        """Flag the workflow for rejection; HITLGateStepExecutor raises WorkflowRejectedError after gate releases."""
+        from src.api.workflow_hitl import reject_workflow_impl
+
+        ctx = self._contexts.get(workflow_id)
+        if ctx is None:
+            raise KeyError("workflow_not_found")
+        event = self.get_approval_event(workflow_id)
+        if event is None:
+            raise KeyError("not_awaiting_approval")
+        await reject_workflow_impl(ctx, event, self._sessions.get(workflow_id), reason)
 
     async def cancel_active(self) -> None:
         """Cancel all running workflows. Used for graceful shutdown and test cleanup."""
