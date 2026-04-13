@@ -1,6 +1,6 @@
 # Implementation Status — pharma-derive
 
-**Last updated:** 2026-04-11
+**Last updated:** 2026-04-13
 **Plan:** IMPLEMENTATION_PLAN.md
 
 ## Progress Summary
@@ -21,8 +21,12 @@
 | Phase 12: YAML agent config | ✅ Complete | 173 | 100% |
 | Phase 13: ADaM data output (F07) | ✅ Complete | 189 | 100% |
 | Phase 14: YAML pipeline (F02/F03) | ✅ Complete | 243 | 100% |
+| Phase 15: Resilience + restart + lineage DAG | ✅ Complete | 259 | 100% |
+| Phase 16.1: Long-term memory wiring | ✅ Complete | 282 | 100% |
+| Phase 16.2a: HITL backend plumbing | ✅ Complete | 284 | 100% |
+| Phase 16.2b: HITL backend API surface | ✅ Complete | 292 | 100% |
 
-**Overall:** 14/14 phases complete (100%) ✅
+**Overall:** 17/17 phases complete (100%) ✅
 
 ---
 
@@ -232,6 +236,220 @@
 
 ---
 
-## All Phases Complete ✅
+## Phase 16.1 — Long-Term Memory Wiring
 
-**Final metrics:** 243 tests | 20 import contracts | 18 pre-push hooks | 10 custom arch checks | 0 gaps
+**Implemented:** 2026-04-13
+**Agent:** `python-fastapi`
+**Commits:** `0d35671`, `55000e9`, `82f57fd`
+**Tooling:** ✅ All 18 pre-push hooks pass (282 tests, 19 import contracts)
+
+### Goal
+`PatternRepository`, `FeedbackRepository`, `QCHistoryRepository` existed
+with full CRUD methods but were never instantiated outside tests. This
+phase wires them into the pipeline so the coder agent can cache-hit on
+prior approved patterns and post-HITL approvals persist to long-term
+memory.
+
+### Completed
+- ✅ `query_patterns` PydanticAI tool — fetches up to 3 approved patterns
+  per variable type from `PatternRepository`, graceful no-repo fallback
+- ✅ `save_patterns` builtin — persists approved DAG nodes +
+  `QCHistoryRepository` verdicts after `human_review` gate
+- ✅ `PipelineContext.pattern_repo` / `qc_history_repo` (TYPE_CHECKING),
+  `CoderDeps.pattern_repo` — repositories injected via DI, not
+  instantiated inside engine/agents
+- ✅ `src/factory.py` constructs both repos at workflow start
+- ✅ `save_patterns` step added to `clinical_derivation.yaml` and
+  `enterprise.yaml`, deliberately **omitted** from `express.yaml`
+  (no HITL = no human-validated patterns worth keeping)
+- ✅ `BaseRepository.commit()` helper so engine code can flush via
+  `ctx.pattern_repo.commit()` without touching sqlalchemy directly
+- ✅ `AgentRegistry.TOOL_MAP` extended with `query_patterns`
+
+### DI refactor (commits 55000e9, 82f57fd)
+- Plan initially had engine/agents instantiating repos directly; that
+  tripped the `check_repo_direct_instantiation` pre-push hook.
+- Plan also kept `ctx.session: AsyncSession | None`; that tripped the
+  `check_raw_sql_in_engine` hook because TYPE_CHECKING-block sqlalchemy
+  imports are still parsed by the AST walker.
+- Fix: inject repos from `src/factory.py` (outside FORBIDDEN_LAYERS),
+  store under TYPE_CHECKING annotations only, call `repo.commit()`
+  instead of `session.commit()`. Zero runtime sqlalchemy imports in
+  `src/engine/`.
+
+### Files Created
+- `src/agents/tools/query_patterns.py` (33 lines)
+- `tests/unit/test_query_patterns_tool.py`
+- `tests/unit/test_save_patterns_builtin.py`
+- `tests/integration/test_long_term_memory.py`
+- `IMPLEMENTATION_PLAN_PHASE_16_1.md`
+
+### Files Modified
+- `src/agents/deps.py` — `CoderDeps.pattern_repo` (TYPE_CHECKING)
+- `src/agents/registry.py` — `TOOL_MAP["query_patterns"]`
+- `src/agents/tools/__init__.py` — re-export
+- `src/engine/pipeline_context.py` — `pattern_repo`, `qc_history_repo` fields
+- `src/engine/derivation_runner.py` — threads `pattern_repo` into `CoderDeps`
+- `src/engine/step_executors.py` — passes `ctx.pattern_repo` to `run_variable`
+- `src/engine/step_builtins.py` — `save_patterns` builtin + registration
+- `src/factory.py` — instantiates both repos, sets them on `PipelineContext`
+- `src/persistence/base_repo.py` — `commit()` helper
+- `config/agents/coder.yaml`, `qc_programmer.yaml` — add `query_patterns` tool
+- `config/pipelines/clinical_derivation.yaml`, `enterprise.yaml` — add `save_patterns` step
+- `.importlinter` — TYPE_CHECKING-only edges under 3 contract exceptions
+
+### Tests Added
+- +23 tests (5 tool + 5 builtin + 2 integration + 11 absorbed regressions)
+
+### End-to-End Verification (production smoke test)
+Ran `simple_mock.yaml` twice against the live backend + agentlens proxy
++ `mailbox_simple_mock.py` auto-responder, approved each HITL gate via
+the UI, and inspected `cdde.db` directly:
+
+| Table | Before | After | Delta |
+|---|---|---|---|
+| `patterns[AGE_GROUP]` | 3 | 5 | **+2** |
+| `patterns[TREATMENT_DURATION]` | 3 | 5 | **+2** |
+| `patterns[IS_ELDERLY]` | 3 | 5 | **+2** |
+| `patterns[RISK_SCORE]` | 3 | 5 | **+2** |
+| `qc_history.total` | 19 | 27 | **+8** |
+
+Two runs × 4 approved variables = 8 new pattern rows + 8 new qc_history
+rows. The new rows carry fresh `approach` strings distinct from older
+rows, confirming they were freshly persisted. The `save_patterns` step
+was visible in the FSM timeline (`api_fsm=audit ... db_fsm=save_patterns`).
+
+### Verification Checklist
+| Item | Status |
+|------|--------|
+| All files created | ✅ |
+| All tests passing (282) | ✅ |
+| Tooling clean (pyright, ruff, lint-imports, 18 pre-push hooks) | ✅ |
+| `/check` passes | ✅ |
+| End-to-end smoke test against real backend | ✅ |
+| Zero runtime sqlalchemy imports in `src/engine/` | ✅ |
+
+---
+
+## Phase 16.2 — HITL Backend (Reject + Override + Rich Approval)
+
+**Implemented:** 2026-04-13
+**Agent:** `python-fastapi`
+**Sub-phases:** 16.2a (infrastructure) + 16.2b (API surface)
+**Commits:** `cd284da` (16.2a), `d337cdd` (16.2b)
+**Tooling:** ✅ All 18 pre-push hooks pass (292 tests, 19 import contracts)
+
+### Goal
+Close the HITL loop by letting humans **reject** workflows, **override**
+per-variable code, and provide **rich feedback** alongside approvals —
+and persist every human action into `FeedbackRepository` so the
+cross-run learning loop feeds back into future runs.
+
+### Design call-out — rejection flow
+**Do NOT call `task.cancel()`.** `asyncio.CancelledError` inherits from
+`BaseException`, not `Exception`, so `_run_and_cleanup`'s
+`except Exception` would miss it and leak the task. Instead:
+
+1. `WorkflowManager.reject_workflow` sets `ctx.rejection_requested = True`
+   + `ctx.rejection_reason`, writes a `FeedbackRow`, then releases the
+   HITL `asyncio.Event`.
+2. `HITLGateStepExecutor` wakes from `event.wait()`, checks the flag,
+   raises `WorkflowRejectedError(reason)`.
+3. `WorkflowRejectedError` inherits `CDDEError → Exception`, so the
+   existing `_run_and_cleanup` catches it naturally and transitions
+   the FSM via the existing `fail()` path. Zero new error handling.
+
+### 16.2a — Infrastructure (commit `cd284da`)
+- ✅ `src/domain/exceptions.py` — `NotFoundError`, `WorkflowRejectedError`
+  (both inherit `CDDEError`, not `BaseException`)
+- ✅ `src/domain/enums.py` — `AuditAction.HUMAN_REJECTED`, `HUMAN_OVERRIDE`
+- ✅ `src/engine/pipeline_context.py` — `rejection_requested: bool`,
+  `rejection_reason: str` (primitive fields, no new imports)
+- ✅ `src/engine/step_executors.py::HITLGateStepExecutor` — checks the
+  flag after `event.wait()`, raises `WorkflowRejectedError` on reject
+  path, records `HUMAN_REJECTED` audit
+- ✅ +2 unit tests for the gate executor reject/approval branches
+
+### 16.2b — API Surface (commit `d337cdd`)
+- ✅ `src/api/schemas.py` — `VariableDecision`, `ApprovalRequest`,
+  `RejectionRequest`, `VariableOverrideRequest` (all frozen,
+  `Field(min_length=1)` on required strings)
+- ✅ `src/api/workflow_manager.py` + `src/api/workflow_hitl.py` —
+  `get_session`, `approve_with_feedback`, `reject_workflow`. The
+  approve path writes one `FeedbackRow` per `VariableDecision`; the
+  reject path sets the rejection flag, writes a `FeedbackRow`, then
+  releases the gate. Both commit in a single transaction.
+- ✅ `src/api/services/override_service.py` — `OverrideService` validates
+  the variable exists in the DAG, runs `execute_derivation` on the new
+  code, applies the result to `derived_df` **only on success**, updates
+  `node.approved_code`, records `HUMAN_OVERRIDE` audit, writes feedback,
+  commits once. On failure, raises `DerivationError` without mutating
+  state so the router returns 400 with the original code preserved.
+- ✅ `src/api/routers/hitl.py` — `POST /approve` (backwards-compatible
+  with no body), `POST /reject`, `POST /variables/{var}/override`
+- ✅ `src/api/routers/workflows.py` — removed old `/approve` (moved to
+  `hitl.py` to keep file under the 300-line limit)
+- ✅ `src/api/app.py` — registers `hitl_router`
+- ✅ 8 new integration tests covering all paths
+
+### Size refactors
+`workflow_manager.py` was hitting the AST class-body limit (230 lines).
+Extracted `approve_with_feedback_impl` + `reject_workflow_impl` into
+a new `src/api/workflow_hitl.py`; `WorkflowManager` delegates. Mirrors
+the `workflow_lifecycle.py` extraction pattern from commit `3a8ee62`.
+Adding 3 endpoints to `workflows.py` would have pushed it over 300
+lines; added a focused `routers/hitl.py` instead.
+
+### Files Created
+- `src/api/services/__init__.py` (2 lines)
+- `src/api/services/override_service.py` (94 lines)
+- `src/api/workflow_hitl.py` (65 lines)
+- `src/api/routers/hitl.py` (82 lines)
+- `tests/integration/test_hitl_flows.py` (347 lines, 8 tests)
+- `IMPLEMENTATION_PLAN_PHASE_16_2_A.md`, `IMPLEMENTATION_PLAN_PHASE_16_2_B.md`
+
+### Files Modified
+- `.importlinter` — 2 new `api → feedback_repo` exceptions (landed in
+  16.2b because import-linter rejects unmatched `ignore_imports` entries)
+- `src/api/schemas.py` — 4 new frozen request schemas
+- `src/api/workflow_manager.py` — `get_session` + 2 delegating methods
+- `src/api/app.py` — register `hitl_router`
+- `src/api/routers/workflows.py` — removed `/approve` (now in `hitl.py`)
+
+### Tests Added
+- **16.2a:** 2 unit tests (gate executor reject + approval paths)
+- **16.2b:** 8 integration tests
+  1. `test_reject_workflow_sets_flag_and_writes_feedback`
+  2. `test_reject_with_empty_reason_returns_422`
+  3. `test_approve_with_per_variable_payload_writes_feedback`
+  4. `test_approve_with_no_body_releases_gate` (backwards compat)
+  5. `test_override_variable_rewrites_approved_code`
+  6. `test_override_variable_with_invalid_code_returns_400`
+  7. `test_override_unknown_variable_returns_404`
+  8. `test_reject_on_workflow_not_at_gate_returns_409`
+
+### Verification Checklist
+| Item | Status |
+|------|--------|
+| All files created | ✅ |
+| 292 tests passing (+10 new) | ✅ |
+| No `task.cancel()` anywhere in the new code (grep verified) | ✅ |
+| Rejection path stays inside `Exception` hierarchy | ✅ |
+| `workflow_manager.py` class body under AST limit | ✅ |
+| `routers/workflows.py` + `routers/hitl.py` both under 300 lines | ✅ |
+| Tooling clean (pyright, ruff, lint-imports, 18 pre-push hooks) | ✅ |
+
+---
+
+## Next Phase Preview
+
+**Phase 16.3: HITL Frontend Surface**
+- UI affordances for reject button, per-variable decisions, override editor
+- Dependencies: Phase 16.2b ✅
+- Split across `16.3_0.md` (scaffolding), `16.3_A.md`, `16.3_B.md` — ready to start
+
+---
+
+## All Phases 1-16.2 Complete ✅
+
+**Current metrics:** 292 tests | 19 import contracts | 18 pre-push hooks | 10 custom arch checks | 0 gaps
