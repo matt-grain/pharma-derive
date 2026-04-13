@@ -175,7 +175,7 @@ class ParallelMapStepExecutor(StepExecutor):
                         coder_agent_name=coder_name,
                         qc_agent_name=qc_name,
                         debugger_agent_name=debugger_name,
-                        session=ctx.session,
+                        pattern_repo=ctx.pattern_repo,
                     )
                     for v in layer
                 ]

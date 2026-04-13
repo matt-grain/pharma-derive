@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     from src.audit.trail import AuditTrail
     from src.domain.dag import DerivationDAG
     from src.domain.models import TransformationSpec
+    from src.persistence.pattern_repo import PatternRepository
+    from src.persistence.qc_history_repo import QCHistoryRepository
 
 
 @dataclass
@@ -29,6 +31,8 @@ class PipelineContext:
     llm_base_url: str
     output_dir: Path | None = None
     session: AsyncSession | None = None
+    pattern_repo: PatternRepository | None = None
+    qc_history_repo: QCHistoryRepository | None = None
 
     # Step outputs — populated during execution
     spec: TransformationSpec | None = None

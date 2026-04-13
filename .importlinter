@@ -109,14 +109,12 @@ name = Agents cannot import from Persistence
 type = forbidden
 source_modules = src.agents
 forbidden_modules = src.persistence
-# ARCHITECTURAL EXCEPTION (not violation):
-# query_patterns tool reads validated patterns from long-term memory to seed
-# code generation. Accesses session via explicit DI through CoderDeps.session,
-# never via module-level singleton. Mirrors the workflow_manager exception
-# pattern: persistence is accessed at an orchestration boundary with a lifecycle-
-# managed session, not by internal business logic.
+# TYPE_CHECKING-only import on CoderDeps.pattern_repo — never executes at
+# runtime. Pyright needs it to type-check the DI-injected repo field. No agent
+# module instantiates or imports a repository at runtime — verified by the
+# check_repo_direct_instantiation pre-push hook.
 ignore_imports =
-    src.agents.tools.query_patterns -> src.persistence.pattern_repo
+    src.agents.deps -> src.persistence.pattern_repo
 
 [importlinter:contract:agents-no-audit]
 name = Agents cannot import from Audit
@@ -129,18 +127,17 @@ name = Engine cannot import Persistence directly (use DI)
 type = forbidden
 source_modules = src.engine
 forbidden_modules = src.persistence
-# ARCHITECTURAL EXCEPTIONS (not violations):
-# - step_builtins: save_patterns builtin uses explicit DI via ctx.session (same
-#   pattern as workflow_manager → workflow_state_repo).
-# - query_patterns transitive chain: agents.registry eagerly imports
-#   query_patterns to register it in TOOL_MAP, and query_patterns imports
-#   pattern_repo lazily at call-time. Ignoring the final edge breaks the
-#   transitive engine.debug_runner → agents.factory → registry → query_patterns
-#   → pattern_repo chain exposed by static analysis.
+# TYPE_CHECKING-only imports — these never execute at runtime and are only
+# present so pyright can type the DI-injected repo fields on PipelineContext
+# and the pattern_repo parameter on derivation_runner. Repositories are
+# constructed in src/factory.py (outside the engine layer) and injected via
+# explicit DI. No engine module instantiates or imports a repository at
+# runtime — verified by check_repo_direct_instantiation pre-push hook.
 ignore_imports =
-    src.engine.step_builtins -> src.persistence.pattern_repo
-    src.engine.step_builtins -> src.persistence.qc_history_repo
-    src.agents.tools.query_patterns -> src.persistence.pattern_repo
+    src.engine.pipeline_context -> src.persistence.pattern_repo
+    src.engine.pipeline_context -> src.persistence.qc_history_repo
+    src.engine.derivation_runner -> src.persistence.pattern_repo
+    src.agents.deps -> src.persistence.pattern_repo
 
 [importlinter:contract:verification-no-persistence]
 name = Verification cannot import from Persistence
@@ -199,6 +196,7 @@ ignore_imports =
     src.api.workflow_manager -> src.persistence.workflow_state_repo
     src.api.workflow_manager -> src.factory
     src.api.workflow_lifecycle -> src.persistence.workflow_state_repo
-    src.engine.step_builtins -> src.persistence.pattern_repo
-    src.engine.step_builtins -> src.persistence.qc_history_repo
-    src.agents.tools.query_patterns -> src.persistence.pattern_repo
+    src.engine.pipeline_context -> src.persistence.pattern_repo
+    src.engine.pipeline_context -> src.persistence.qc_history_repo
+    src.engine.derivation_runner -> src.persistence.pattern_repo
+    src.agents.deps -> src.persistence.pattern_repo

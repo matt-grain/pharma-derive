@@ -12,6 +12,8 @@ from src.engine.pipeline_context import PipelineContext
 from src.engine.pipeline_fsm import PipelineFSM
 from src.engine.pipeline_interpreter import PipelineInterpreter
 from src.persistence.database import init_db
+from src.persistence.pattern_repo import PatternRepository
+from src.persistence.qc_history_repo import QCHistoryRepository
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -47,6 +49,8 @@ async def create_pipeline_orchestrator(
         llm_base_url=llm_base_url or settings.llm_base_url,
         output_dir=output_dir,
         session=session,
+        pattern_repo=PatternRepository(session),
+        qc_history_repo=QCHistoryRepository(session),
     )
     # Seed spec_path so the parse_spec builtin can locate the file
     ctx.step_outputs["_init"] = {"spec_path": _Path(spec_path)}

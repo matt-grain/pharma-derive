@@ -21,24 +21,22 @@ from src.persistence.pattern_repo import PatternRepository
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from sqlalchemy.ext.asyncio import AsyncSession
-
 
 @pytest.fixture
-async def db_session() -> AsyncGenerator[AsyncSession]:
+async def pattern_repo() -> AsyncGenerator[PatternRepository]:
     session_factory = await init_db("sqlite+aiosqlite:///:memory:")
     async with session_factory() as session:
-        yield session
+        yield PatternRepository(session)
 
 
-def _make_ctx(rule: DerivationRule, session: AsyncSession | None) -> RunContext[CoderDeps]:
-    """Build a minimal RunContext stub with the given session."""
+def _make_ctx(rule: DerivationRule, repo: PatternRepository | None) -> RunContext[CoderDeps]:
+    """Build a minimal RunContext stub with the given PatternRepository."""
     deps = CoderDeps(
         df=pd.DataFrame({"age": [72, 45]}),
         synthetic_csv="age\n72\n45",
         rule=rule,
         available_columns=["age"],
-        session=session,
+        pattern_repo=repo,
     )
     ctx: RunContext[CoderDeps] = MagicMock(spec=RunContext)
     ctx.deps = deps
@@ -70,7 +68,7 @@ async def test_query_patterns_with_no_session_returns_unavailable_message(
     agegr1_rule: DerivationRule,
 ) -> None:
     # Arrange
-    ctx = _make_ctx(agegr1_rule, session=None)
+    ctx = _make_ctx(agegr1_rule, repo=None)
 
     # Act
     result = await query_patterns(ctx)
@@ -80,11 +78,11 @@ async def test_query_patterns_with_no_session_returns_unavailable_message(
 
 
 async def test_query_patterns_with_empty_db_returns_no_history_message(
-    db_session: AsyncSession,
+    pattern_repo: PatternRepository,
     agegr1_rule: DerivationRule,
 ) -> None:
     # Arrange
-    ctx = _make_ctx(agegr1_rule, session=db_session)
+    ctx = _make_ctx(agegr1_rule, repo=pattern_repo)
 
     # Act
     result = await query_patterns(ctx)
@@ -94,26 +92,25 @@ async def test_query_patterns_with_empty_db_returns_no_history_message(
 
 
 async def test_query_patterns_returns_formatted_patterns_when_found(
-    db_session: AsyncSession,
+    pattern_repo: PatternRepository,
     agegr1_rule: DerivationRule,
 ) -> None:
     # Arrange
-    repo = PatternRepository(db_session)
-    await repo.store(
+    await pattern_repo.store(
         variable_type="AGEGR1",
         spec_logic="<65 / 65-80 / >80",
         approved_code="pd.cut(df['age'], bins=[0, 65, 80, 999], labels=['<65', '65-80', '>80'])",
         study="CDISCPILOT01",
         approach="pd.cut",
     )
-    await repo.store(
+    await pattern_repo.store(
         variable_type="AGEGR1",
         spec_logic="<65 / 65-80 / >80",
         approved_code="np.select([df['age'] < 65, df['age'] <= 80], ['<65', '65-80'], default='>80')",
         study="CDISCPILOT01",
         approach="np.select",
     )
-    ctx = _make_ctx(agegr1_rule, session=db_session)
+    ctx = _make_ctx(agegr1_rule, repo=pattern_repo)
 
     # Act
     result = await query_patterns(ctx)
@@ -127,27 +124,26 @@ async def test_query_patterns_returns_formatted_patterns_when_found(
 
 
 async def test_query_patterns_respects_variable_type_filter(
-    db_session: AsyncSession,
+    pattern_repo: PatternRepository,
     agegr1_rule: DerivationRule,
     trtdur_rule: DerivationRule,
 ) -> None:
     # Arrange — seed one AGEGR1 and one TRTDUR row
-    repo = PatternRepository(db_session)
-    await repo.store(
+    await pattern_repo.store(
         variable_type="AGEGR1",
         spec_logic="<65 / 65-80 / >80",
         approved_code="agegr1_code()",
         study="STUDY01",
         approach="pd.cut",
     )
-    await repo.store(
+    await pattern_repo.store(
         variable_type="TRTDUR",
         spec_logic="Days between end and start",
         approved_code="trtdur_code()",
         study="STUDY01",
         approach="diff",
     )
-    ctx = _make_ctx(agegr1_rule, session=db_session)
+    ctx = _make_ctx(agegr1_rule, repo=pattern_repo)
 
     # Act
     result = await query_patterns(ctx)
@@ -158,20 +154,19 @@ async def test_query_patterns_respects_variable_type_filter(
 
 
 async def test_query_patterns_caps_at_three_patterns(
-    db_session: AsyncSession,
+    pattern_repo: PatternRepository,
     agegr1_rule: DerivationRule,
 ) -> None:
     # Arrange — seed 10 rows for AGEGR1
-    repo = PatternRepository(db_session)
     for i in range(10):
-        await repo.store(
+        await pattern_repo.store(
             variable_type="AGEGR1",
             spec_logic=f"logic_{i}",
             approved_code=f"code_{i}",
             study="STUDY01",
             approach=f"approach_{i}",
         )
-    ctx = _make_ctx(agegr1_rule, session=db_session)
+    ctx = _make_ctx(agegr1_rule, repo=pattern_repo)
 
     # Act
     result = await query_patterns(ctx)

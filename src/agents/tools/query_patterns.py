@@ -18,16 +18,14 @@ async def query_patterns(ctx: RunContext[CoderDeps]) -> str:
 
     Call this before writing derivation code — if a good match exists, adapt it
     rather than generating from scratch. Returns a human-readable message when no
-    session or no history is available.
+    repo is wired (unit-test context) or no history is available.
     """
-    session = ctx.deps.session
-    if session is None:
+    repo = ctx.deps.pattern_repo
+    if repo is None:
         return "No pattern history available."
 
-    from src.persistence.pattern_repo import PatternRepository
-
     variable_type = ctx.deps.rule.variable
-    records = await PatternRepository(session).query_by_type(variable_type=variable_type, limit=3)
+    records = await repo.query_by_type(variable_type=variable_type, limit=3)
 
     if not records:
         return "No prior patterns found for this variable."

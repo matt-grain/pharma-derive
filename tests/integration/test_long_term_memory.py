@@ -22,6 +22,7 @@ from src.engine.pipeline_interpreter import PipelineInterpreter
 from src.engine.step_builtins import BUILTIN_REGISTRY
 from src.persistence.database import init_db
 from src.persistence.pattern_repo import PatternRepository
+from src.persistence.qc_history_repo import QCHistoryRepository
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -67,6 +68,8 @@ async def _run_and_save(
         audit_trail=AuditTrail(wf_id),
         llm_base_url="http://localhost:4010",
         session=session,
+        pattern_repo=PatternRepository(session),
+        qc_history_repo=QCHistoryRepository(session),
     )
     ctx.step_outputs["_init"] = {"spec_path": spec_path}
 
@@ -150,7 +153,7 @@ async def test_two_runs_of_same_spec_second_run_finds_patterns(
                 synthetic_csv="",
                 rule=rule,
                 available_columns=[],
-                session=s,
+                pattern_repo=PatternRepository(s),
             )
             ctx_mock: RunContext[CoderDeps] = MagicMock(spec=RunContext)
             ctx_mock.deps = deps

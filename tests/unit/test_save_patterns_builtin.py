@@ -93,6 +93,8 @@ def _make_ctx(
         audit_trail=AuditTrail("wf-test"),
         llm_base_url="http://localhost:4010",
         session=session,
+        pattern_repo=PatternRepository(session) if session is not None else None,
+        qc_history_repo=QCHistoryRepository(session) if session is not None else None,
     )
     ctx.dag = dag
     ctx.derived_df = pd.DataFrame()
