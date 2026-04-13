@@ -37,3 +37,11 @@ class BaseRepository:
         except OperationalError as exc:
             logger.error("Operational error during flush: {err}", err=exc)
             raise RepositoryError("flush", f"Database operational error: {exc}") from exc
+
+    async def commit(self) -> None:
+        """Commit the underlying session — used by orchestration code to persist pending writes."""
+        try:
+            await self._session.commit()
+        except (IntegrityError, OperationalError) as exc:
+            logger.error("Commit failed: {err}", err=exc)
+            raise RepositoryError("commit", f"Database commit failed: {exc}") from exc

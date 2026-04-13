@@ -9,7 +9,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import pandas as pd
-    from sqlalchemy.ext.asyncio import AsyncSession
 
     from src.audit.trail import AuditTrail
     from src.domain.dag import DerivationDAG
@@ -30,7 +29,6 @@ class PipelineContext:
     audit_trail: AuditTrail
     llm_base_url: str
     output_dir: Path | None = None
-    session: AsyncSession | None = None
     pattern_repo: PatternRepository | None = None
     qc_history_repo: QCHistoryRepository | None = None
 

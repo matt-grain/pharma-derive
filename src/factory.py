@@ -48,7 +48,6 @@ async def create_pipeline_orchestrator(
         audit_trail=AuditTrail(wf_id),
         llm_base_url=llm_base_url or settings.llm_base_url,
         output_dir=output_dir,
-        session=session,
         pattern_repo=PatternRepository(session),
         qc_history_repo=QCHistoryRepository(session),
     )

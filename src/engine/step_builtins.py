@@ -60,13 +60,7 @@ async def _builtin_export_adam(step: StepDefinition, ctx: PipelineContext) -> No
 
 async def _builtin_save_patterns(step: StepDefinition, ctx: PipelineContext) -> None:
     """Persist approved DAG nodes to PatternRepository + QC verdicts to QCHistoryRepository."""
-    if (
-        ctx.pattern_repo is None
-        or ctx.qc_history_repo is None
-        or ctx.session is None
-        or ctx.dag is None
-        or ctx.spec is None
-    ):
+    if ctx.pattern_repo is None or ctx.qc_history_repo is None or ctx.dag is None or ctx.spec is None:
         return
     from src.domain.models import DerivationStatus
 
@@ -91,7 +85,7 @@ async def _builtin_save_patterns(step: StepDefinition, ctx: PipelineContext) -> 
                 qc_approach=node.qc_approach or "",
                 study=study,
             )
-    await ctx.session.commit()
+    await ctx.pattern_repo.commit()
 
 
 BUILTIN_REGISTRY: dict[str, Any] = {

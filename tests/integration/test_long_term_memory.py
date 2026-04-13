@@ -67,7 +67,6 @@ async def _run_and_save(
         workflow_id=wf_id,
         audit_trail=AuditTrail(wf_id),
         llm_base_url="http://localhost:4010",
-        session=session,
         pattern_repo=PatternRepository(session),
         qc_history_repo=QCHistoryRepository(session),
     )

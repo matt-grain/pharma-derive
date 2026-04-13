@@ -92,7 +92,6 @@ def _make_ctx(
         workflow_id="wf-test",
         audit_trail=AuditTrail("wf-test"),
         llm_base_url="http://localhost:4010",
-        session=session,
         pattern_repo=PatternRepository(session) if session is not None else None,
         qc_history_repo=QCHistoryRepository(session) if session is not None else None,
     )
@@ -209,7 +208,8 @@ async def test_save_patterns_with_empty_dag_is_noop(
         workflow_id="wf-empty",
         audit_trail=AuditTrail("wf-empty"),
         llm_base_url="http://localhost:4010",
-        session=db_session,
+        pattern_repo=PatternRepository(db_session),
+        qc_history_repo=QCHistoryRepository(db_session),
     )
     # Leave ctx.dag as None — triggers early return
     step = _minimal_spec_step("save_patterns")
