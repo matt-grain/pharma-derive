@@ -46,6 +46,7 @@ async def create_pipeline_orchestrator(
         audit_trail=AuditTrail(wf_id),
         llm_base_url=llm_base_url or settings.llm_base_url,
         output_dir=output_dir,
+        session=session,
     )
     # Seed spec_path so the parse_spec builtin can locate the file
     ctx.step_outputs["_init"] = {"spec_path": _Path(spec_path)}

@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 import pandas as pd  # noqa: TC002 — used at runtime in dataclass field
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from src.domain.models import DerivationRule, SpecMetadata
 
 
@@ -19,6 +21,7 @@ class CoderDeps:
     synthetic_csv: str
     rule: DerivationRule
     available_columns: list[str]
+    session: AsyncSession | None = None
 
 
 @dataclass

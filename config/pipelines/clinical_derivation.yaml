@@ -32,10 +32,16 @@ pipeline:
         message: "Review all derivations — inspect DAG, code, and QC results before audit"
       description: "Human-in-the-loop approval gate"
 
+    - id: save_patterns
+      type: builtin
+      builtin: save_patterns
+      depends_on: [human_review]
+      description: "Persist approved derivations to long-term memory"
+
     - id: audit
       type: agent
       agent: auditor
-      depends_on: [human_review]
+      depends_on: [save_patterns]
       description: "Generate regulatory audit summary"
 
     - id: export

@@ -27,6 +27,7 @@ from src.verification.comparator import VerificationResult, verify_derivation
 
 if TYPE_CHECKING:
     import pandas as pd
+    from sqlalchemy.ext.asyncio import AsyncSession
 
     from src.domain.dag import DerivationDAG
     from src.domain.models import DerivationRule
@@ -41,12 +42,13 @@ async def run_variable(
     coder_agent_name: str = "coder",
     qc_agent_name: str | None = "qc_programmer",
     debugger_agent_name: str | None = "debugger",
+    session: AsyncSession | None = None,
 ) -> None:
     """Run coder + optional QC in parallel, verify, and debug if needed. Mutates dag and derived_df."""
     node = dag.get_node(variable)
     available = list(derived_df.columns)
     coder, qc_code = await _run_coder_and_qc(
-        node.rule, derived_df, synthetic_csv, available, llm_base_url, coder_agent_name, qc_agent_name
+        node.rule, derived_df, synthetic_csv, available, llm_base_url, coder_agent_name, qc_agent_name, session
     )
 
     if qc_code is None:
@@ -114,6 +116,7 @@ async def _run_coder_and_qc(
     llm_base_url: str,
     coder_name: str,
     qc_name: str | None,
+    session: AsyncSession | None = None,
 ) -> tuple[DerivationCode, DerivationCode | None]:
     """Fan-out coder and optional QC agent calls in parallel."""
     from src.config.settings import get_settings
@@ -121,7 +124,7 @@ async def _run_coder_and_qc(
     agent_dir = get_settings().agent_config_dir
     llm = create_llm(base_url=llm_base_url)
     coder = load_agent(f"{agent_dir}/{coder_name}.yaml")
-    deps = CoderDeps(df=df, synthetic_csv=synthetic_csv, rule=rule, available_columns=available)
+    deps = CoderDeps(df=df, synthetic_csv=synthetic_csv, rule=rule, available_columns=available, session=session)
 
     if qc_name is None:
         coder_out = await coder.run(str(rule.logic), deps=deps, model=llm)

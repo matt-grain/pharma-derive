@@ -39,10 +39,16 @@ pipeline:
         message: "Review each derived variable — inspect code, QC results, and debugger fixes"
       description: "HITL gate: approve variables before audit"
 
+    - id: save_patterns
+      type: builtin
+      builtin: save_patterns
+      depends_on: [variable_review]
+      description: "Persist approved derivations to long-term memory"
+
     - id: audit
       type: agent
       agent: auditor
-      depends_on: [variable_review]
+      depends_on: [save_patterns]
       description: "Generate regulatory audit summary"
 
     - id: final_signoff

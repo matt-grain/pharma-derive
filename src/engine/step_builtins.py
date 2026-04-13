@@ -58,10 +58,45 @@ async def _builtin_export_adam(step: StepDefinition, ctx: PipelineContext) -> No
         ctx.derived_df.to_parquet(ctx.output_dir / f"{wf_id}_adam.parquet", index=False, engine="pyarrow")
 
 
+async def _builtin_save_patterns(step: StepDefinition, ctx: PipelineContext) -> None:
+    """Persist approved DAG nodes to PatternRepository + QC verdicts to QCHistoryRepository."""
+    if ctx.session is None or ctx.dag is None or ctx.spec is None:
+        return
+    from src.domain.models import DerivationStatus
+    from src.persistence.pattern_repo import PatternRepository
+    from src.persistence.qc_history_repo import QCHistoryRepository
+
+    pattern_repo = PatternRepository(ctx.session)
+    qc_repo = QCHistoryRepository(ctx.session)
+    study = ctx.spec.metadata.study
+
+    for variable in ctx.dag.execution_order:
+        node = ctx.dag.get_node(variable)
+        if node.status != DerivationStatus.APPROVED or node.approved_code is None:
+            continue
+        await pattern_repo.store(
+            variable_type=node.rule.variable,
+            spec_logic=node.rule.logic,
+            approved_code=node.approved_code,
+            study=study,
+            approach=node.coder_approach or "",
+        )
+        if node.qc_verdict is not None:
+            await qc_repo.store(
+                variable=node.rule.variable,
+                verdict=node.qc_verdict,
+                coder_approach=node.coder_approach or "",
+                qc_approach=node.qc_approach or "",
+                study=study,
+            )
+    await ctx.session.commit()
+
+
 BUILTIN_REGISTRY: dict[str, Any] = {
     "parse_spec": _builtin_parse_spec,
     "build_dag": _builtin_build_dag,
     "export_adam": _builtin_export_adam,
+    "save_patterns": _builtin_save_patterns,
 }
 
 

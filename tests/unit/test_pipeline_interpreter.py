@@ -80,10 +80,11 @@ def test_load_default_pipeline_parses_without_error() -> None:
 
     # Assert
     assert pipeline.name == "clinical_derivation"
-    assert len(pipeline.steps) == 6
+    assert len(pipeline.steps) == 7
     step_ids = [s.id for s in pipeline.steps]
     assert "parse_spec" in step_ids
     assert "human_review" in step_ids
+    assert "save_patterns" in step_ids
     assert "export" in step_ids
 
 

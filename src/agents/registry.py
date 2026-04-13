@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any  # Any: heterogeneous type registry mapping strings to various Pydantic/dataclass types
 
 from src.agents.deps import AuditorDeps, CoderDeps, DebuggerDeps, SpecInterpreterDeps
-from src.agents.tools import execute_code, inspect_data
+from src.agents.tools import execute_code, inspect_data, query_patterns
 from src.agents.types import DebugAnalysis, DerivationCode, SpecInterpretation
 from src.domain.models import AuditSummary
 
@@ -26,4 +26,5 @@ DEPS_TYPE_MAP: dict[str, type[Any]] = {
 TOOL_MAP: dict[str, Any] = {  # Any: PydanticAI tool signatures vary
     "inspect_data": inspect_data,
     "execute_code": execute_code,
+    "query_patterns": query_patterns,
 }
