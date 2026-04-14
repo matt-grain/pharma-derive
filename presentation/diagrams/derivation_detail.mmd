@@ -1,57 +1,81 @@
+---
+title: Per-variable derivation detail (inside derive_variables parallel_map)
+---
 sequenceDiagram
-    participant R as derivation_runner
+    participant DR as derivation_runner.run_variable
+    participant F as query_feedback
+    participant QH as query_qc_history
+    participant QP as query_patterns
     participant C as Coder Agent
     participant QC as QC Agent
-    participant S as Sandbox (exec)
+    participant S as Sandbox (execute_code)
     participant V as Comparator
     participant D as Debugger Agent
     participant DAG as DerivationDAG
+    participant AT as AuditTrail
 
-    R->>R: get_node(variable)
-    Note over R: Build CoderDeps(df, synthetic_csv, rule)
+    DR->>DR: get_node(variable) + build CoderDeps(df, synthetic_csv, rule)
 
-    par Fan-out: Coder + QC
-        R->>C: agent.run(rule.logic)
+    Note over DR,QP: LTM read loop (Phase 17.1 — authority hierarchy)
+    DR->>F: query_feedback(variable)
+    F-->>DR: recent human reviewer decisions (STRONGEST signal)
+    DR->>QH: query_qc_history(variable)
+    QH-->>DR: prior coder/QC verdict pairs with debugger picks
+    DR->>QP: query_patterns(variable_type)
+    QP-->>DR: approved code from past runs
+    Note over DR: Authority: human > debugger > prior agent
+
+    par Fan-out — asyncio.gather (isolated contexts)
+        DR->>C: agent.run(rule.logic, deps)
         activate C
         C->>S: inspect_data(ctx)
-        S-->>C: schema + nulls + ranges
+        S-->>C: schema + null counts + value ranges (no raw rows)
         C->>S: execute_code(ctx, code)
-        S-->>C: aggregate summary
-        C-->>R: DerivationCode(python_code, approach)
+        S-->>C: aggregate summary (pass/fail, row count)
+        C-->>DR: DerivationCode(python_code, approach, null_handling)
         deactivate C
     and
-        R->>QC: agent.run(rule.logic)
+        DR->>QC: agent.run(rule.logic, deps)
         activate QC
         QC->>S: inspect_data(ctx)
-        S-->>QC: schema + nulls + ranges
+        S-->>QC: schema + null counts + value ranges
         QC->>S: execute_code(ctx, code)
         S-->>QC: aggregate summary
-        QC-->>R: DerivationCode(python_code, approach)
+        QC-->>DR: DerivationCode(python_code, approach, null_handling)
         deactivate QC
     end
 
-    R->>V: verify_derivation(coder_code, qc_code, df)
+    DR->>V: verify_derivation(coder_code, qc_code, df)
     activate V
-    V->>S: execute_derivation(df, coder_code)
-    V->>S: execute_derivation(df, qc_code)
-    V->>V: compare_results(primary, qc)
-    V->>V: compute_ast_similarity()
-    V-->>R: VerificationResult(verdict, comparison)
+    V->>S: execute_derivation(df, coder_code) → Series
+    V->>S: execute_derivation(df, qc_code) → Series
+    V->>V: compare_results(primary, qc) row-by-row
+    V->>V: compute_ast_similarity(coder, qc)
+    V-->>DR: VerificationResult(verdict, comparison, ast_similarity)
     deactivate V
 
+    DR->>AT: emit CODER_PROPOSED (approach, code[:200])
+    DR->>AT: emit QC_VERDICT (verdict, approach, code[:200])
+
     alt verdict == MATCH
-        R->>DAG: apply_run_result(APPROVED)
-        R->>R: derived_df[variable] = series
+        DR->>DAG: apply_run_result(APPROVED, code=coder)
+        DR->>DR: derived_df[variable] = primary Series
     else verdict == MISMATCH
-        R->>D: agent.run(debug mismatch)
+        DR->>D: agent.run(debug mismatch, coder_code, qc_code, divergent_rows)
         activate D
-        D-->>R: DebugAnalysis(root_cause, suggested_fix)
+        D-->>DR: DebugAnalysis(root_cause, correct_implementation, confidence)
         deactivate D
-        alt suggested_fix valid
-            R->>S: execute_derivation(df, fix)
-            R->>DAG: apply_run_result(APPROVED)
-            R->>R: derived_df[variable] = series
-        else no fix
-            R->>DAG: apply_run_result(QC_MISMATCH)
+        DR->>AT: emit DEBUGGER_RESOLVED (chose=coder|qc|neither, root_cause)
+        alt correct_implementation == coder
+            DR->>DAG: apply_run_result(APPROVED, code=coder)
+        else correct_implementation == qc
+            DR->>DAG: apply_run_result(APPROVED, code=qc)
+        else neither
+            DR->>DAG: apply_run_result(DEBUG_FAILED)
         end
+    else verdict == TOO_SIMILAR
+        Note over V: AST similarity > 80% — QC not independent enough
+        DR->>QC: agent.run(rule.logic, deps, hint="use a different approach")
+        QC-->>DR: DerivationCode (retried)
+        Note over DR: Re-verify with new QC output
     end

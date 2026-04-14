@@ -1,73 +1,85 @@
+---
+title: Orchestration sequence — YAML-driven PipelineInterpreter
+---
 sequenceDiagram
-    participant U as User / UI
-    participant O as Orchestrator
-    participant FSM as WorkflowFSM
-    participant SP as SpecParser
-    participant DAG as DerivationDAG
-    participant C as Coder Agent
-    participant QC as QC Agent
-    participant V as Comparator
-    participant D as Debugger Agent
-    participant A as Auditor Agent
-    participant DB as Repository (SQLite)
+    participant U as User / UI (React SPA)
+    participant API as FastAPI / FastMCP
+    participant WM as WorkflowManager
+    participant PI as PipelineInterpreter
+    participant SE as StepExecutor
+    participant DR as derivation_runner
+    participant LTM as LTM Repositories
+    participant GT as Ground Truth
+    participant FS as output_dir (disk)
 
-    U->>O: run(spec_path)
-    activate O
+    U->>API: POST /workflows (spec=adsl_cdiscpilot01.yaml)
+    activate API
+    API->>WM: start_workflow(spec_path)
+    WM->>PI: load pipeline YAML + build FSM
+    WM-->>API: workflow_id (202)
+    API-->>U: workflow_id
+    deactivate API
 
-    Note over O,FSM: Phase 1 — Spec Review
-    O->>FSM: start_spec_review()
-    O->>SP: parse_spec(path)
-    SP-->>O: TransformationSpec
-    O->>O: load_source_data() + generate_synthetic()
-    O->>FSM: finish_spec_review()
+    Note over PI,SE: parse_spec (builtin)
+    PI->>SE: BuiltinStepExecutor.execute
+    SE->>FS: write {wf_id}_source.csv (Phase 18.1 snapshot)
+    SE-->>PI: ctx.spec + derived_df + synthetic_csv
 
-    Note over O,DAG: Phase 2 — Build DAG
-    O->>FSM: start_deriving()
-    O->>DAG: DerivationDAG(rules, source_columns)
-    DAG-->>O: topological layers
+    Note over PI,SE: build_dag (builtin)
+    PI->>SE: BuiltinStepExecutor.execute
+    SE-->>PI: ctx.dag (topological layers, one per dependency level)
 
-    Note over O,D: Phase 3 — Derive Variables (per layer)
-    loop For each topological layer
-        loop For each variable in layer (parallel)
-            O->>FSM: start_verifying()
-
-            par Coder + QC in parallel
-                O->>C: run(rule, deps)
-                C->>C: inspect_data() → execute_code()
-                C-->>O: DerivationCode
+    Note over PI,DR: derive_variables (parallel_map over DAG layers)
+    loop for each layer
+        PI->>SE: ParallelMapStepExecutor.execute
+        loop for each variable in layer (asyncio.gather)
+            SE->>DR: run_variable(variable, ctx, LTMRepos)
+            DR->>LTM: query_feedback + query_qc_history + query_patterns
+            LTM-->>DR: authority-ranked evidence (human > debugger > prior agent)
+            par Coder + QC double programming
+                DR->>DR: coder agent (typed I/O)
             and
-                O->>QC: run(rule, deps)
-                QC->>QC: inspect_data() → execute_code()
-                QC-->>O: DerivationCode
+                DR->>DR: qc agent (isolated context)
             end
-
-            O->>V: verify_derivation(coder_code, qc_code)
-            V-->>O: VerificationResult
-
-            alt QC Match
-                O->>DAG: apply_run_result(APPROVED)
-            else QC Mismatch
-                O->>D: run(debug mismatch)
-                D-->>O: DebugAnalysis
-                alt Fix found
-                    O->>DAG: apply_run_result(APPROVED)
-                else No fix
-                    O->>DAG: apply_run_result(QC_MISMATCH)
-                end
+            DR->>DR: comparator (row-by-row + AST similarity)
+            alt MATCH
+                DR->>PI: DAGNode approved (auto)
+            else MISMATCH
+                DR->>DR: debugger agent
+                DR->>PI: DAGNode approved (chose coder or qc)
             end
-
-            O->>DB: store QC result + pattern
+            DR->>PI: emit CODER_PROPOSED + QC_VERDICT [+ DEBUGGER_RESOLVED] audit events
         end
-        O->>FSM: next_variable()
     end
 
-    Note over O,A: Phase 4 — Audit
-    O->>FSM: finish_review_from_verify()
-    O->>FSM: start_auditing()
-    O->>A: run(dag_summary)
-    A-->>O: AuditSummary
-    O->>DB: persist_state()
-    O->>FSM: finish()
+    Note over PI,GT: ground_truth_check (builtin)
+    PI->>SE: BuiltinStepExecutor.execute
+    SE->>GT: load reference adsl.xpt + inner-join on USUBJID
+    SE->>SE: per-variable compare_results (match/mismatch/total_rows)
+    SE-->>PI: ctx.ground_truth_report
 
-    O-->>U: WorkflowResult
-    deactivate O
+    Note over U,PI: human_review (HITL gate)
+    PI->>SE: HITLGateStepExecutor.execute
+    SE-->>U: status = human_review, awaiting_approval = true
+    U->>API: POST /workflows/{id}/approve (per-variable feedback)
+    API->>WM: approve_with_feedback_impl
+    WM->>LTM: FeedbackRow.save (approved + rejected variables)
+    WM-->>SE: release asyncio.Event
+    SE-->>PI: emit HUMAN_APPROVED audit event with rich details
+
+    Note over PI,LTM: save_patterns (builtin — LTM write)
+    PI->>SE: BuiltinStepExecutor.execute
+    SE->>LTM: PatternRepository.store for each approved DAGNode
+    SE->>LTM: QCHistoryRepository.store for each coder/qc pair
+
+    Note over PI,SE: audit (agent — auditor)
+    PI->>SE: AgentStepExecutor.execute
+    SE->>SE: auditor agent → AuditSummary
+    SE-->>PI: ctx.audit_trail serialized to JSON
+
+    Note over PI,FS: export (builtin)
+    PI->>SE: BuiltinStepExecutor.execute
+    SE->>FS: write {wf_id}_adam.csv + {wf_id}_adam.parquet
+
+    PI-->>WM: FSM -> completed
+    WM-->>U: status = completed (via polling or MCP notification)

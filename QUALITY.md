@@ -37,10 +37,10 @@ This document tracks all quality gates, linters, and architectural checks in the
 | `check-raw-sql-in-engine` | SQL strings or DB imports in engine/ |
 | `check-patient-data-leaks` | `df.head()`, `df.to_csv()` in agent tools |
 | `check-datetime-patterns` | Naive `datetime.now()`, deprecated `utcnow()` |
-| `check-domain-no-ui-exceptions` | Streamlit/FastAPI imports in domain/agents/verification/audit |
-| `check-engine-no-ui-exceptions` | Streamlit/FastAPI imports in engine/ |
+| `check-domain-no-ui-exceptions` | FastAPI imports in domain/agents/verification/audit |
+| `check-engine-no-ui-exceptions` | FastAPI imports in engine/ |
 | `check-repo-direct-instantiation` | Direct `Repository()` instantiation outside DI |
-| `check-file-length` | Files >250, functions >40, classes >200 lines |
+| `check-file-length` | Files > 300, functions > 40, classes > 230 lines |
 | `check-llm-gateway` | Direct OpenAIChatModel outside llm_gateway.py |
 | `check-enum-discipline` | Raw string comparisons against enum values |
 
@@ -66,7 +66,7 @@ This document tracks all quality gates, linters, and architectural checks in the
 | `audit-no-engine` | audit/ cannot import from engine/ | ✅ |
 | `audit-no-persistence` | audit/ cannot import from persistence/ | ✅ |
 | `audit-no-agents` | audit/ cannot import from agents/ | ✅ |
-| `ui-no-persistence` | ui/ cannot import from persistence/ directly | ✅ |
+| `api-no-persistence` | api/ cannot import from persistence/ directly | ✅ |
 
 ## Custom Architectural Checks (10 total)
 
@@ -118,31 +118,39 @@ reportMissingTypeStubs = false
 uv sync --dev → ruff check → ruff format --check → pyright → pytest --cov
 ```
 
-## Quality Metrics (Final — Phase 9)
+## Quality Metrics (Current — Phase 18.1)
 
 | Metric | Value | Threshold |
 |--------|-------|-----------|
-| Test coverage | 89% | >= 80% |
-| Tests passing | 148/148 | 100% |
+| Test coverage (core logic) | >= 80% | >= 80% |
+| Tests passing (backend) | 318/318 | 100% |
+| Tests passing (frontend) | 14/14 | 100% |
 | Pyright errors | 0 | 0 |
 | Ruff violations | 0 | 0 |
 | Import-linter contracts | 19/19 kept | 0 broken |
-| Radon complexity | 1 function at C (12.0) | Flag C+ |
+| Radon complexity | All functions under C threshold | Flag C+ |
 | Vulture dead code | 0 | 0 |
 | Custom arch checks | 10/10 clean | 0 violations |
 | Pre-push hooks | 18/18 green | All pass |
 
 ## Quality History
 
-| Phase | Tests | Coverage | Contracts | Notes |
-|-------|-------|----------|-----------|-------|
-| Phase 1 (domain) | 25 | — | 7/7 | Domain models, DAG, spec parser |
-| Phase 2 (agents) | 52 | — | 7/7 | 5 PydanticAI agents, shared tools, LLM gateway |
-| Phase 3 (engine) | 87 | 95% | 7/7 | WorkflowFSM, derivation runner, executor, comparator |
-| Phase 4 (persistence) | 118 | 85% | 17/17 | SQLAlchemy repos, audit trail, integration tests |
-| Review fix | 118 | 85% | 17/17 | 18 findings fixed, 3 new StrEnums, gateway enforced |
-| Phase 5 (CDISC) | 125 | 85% | 17/17 | XPT loader, ADSL spec, 3 new pre-commit checks |
-| Phase 6 (review) | 148 | 89% | 19/19 | File splits, enums, DebugContext, 30 new tests, AAA markers |
-| Phase 7 (Streamlit) | 148 | 89% | 19/19 | HITL UI, AgentLens theme, DAG visualization |
-| Phase 8 (docs) | 148 | 89% | 19/19 | Design doc (3 pages), Marp slides (18 slides) |
-| Phase 9 (Docker) | 148 | 89% | 19/19 | Dockerfile, compose, README |
+| Phase | Backend tests | Contracts | Notes |
+|-------|---------------|-----------|-------|
+| Phase 1 (domain) | 25 | 7/7 | Domain models, DAG, spec parser |
+| Phase 2 (agents) | 52 | 7/7 | 5 PydanticAI agents, shared tools, LLM gateway |
+| Phase 3 (engine) | 87 | 7/7 | WorkflowFSM, derivation runner, executor, comparator |
+| Phase 4 (persistence) | 118 | 17/17 | SQLAlchemy repos, audit trail, integration tests |
+| Review fix | 118 | 17/17 | 18 findings fixed, 3 new StrEnums, gateway enforced |
+| Phase 5 (CDISC) | 125 | 17/17 | XPT loader, ADSL spec, 3 new pre-commit checks |
+| Phase 6 (review) | 148 | 19/19 | File splits, enums, DebugContext, 30 new tests, AAA markers |
+| Phase 7 (Streamlit) | 148 | 19/19 | HITL UI, AgentLens theme, DAG visualization |
+| Phase 8 (docs) | 148 | 19/19 | Design doc (3 pages), Marp slides (18 slides) |
+| Phase 9 (Docker) | 148 | 19/19 | Dockerfile, compose, README |
+| Phases 10–12 (prod + UI/API split + YAML agents) | 173 | 19/19 | FastAPI REST + FastMCP 3.0; Vite React SPA replaces Streamlit; YAML agent configs; Docker Compose 3-container; HITL approval gate (async event) |
+| Phase 13 (ADaM output) | 205 | 19/19 | CSV + Parquet export; `/data` preview API; Data tab; marks the `pre-yaml-pipeline` tag — last hardcoded-orchestrator commit before the YAML interpreter |
+| Phase 14 (YAML pipeline) | 238 | 19/19 | `PipelineInterpreter` + `PipelineFSM` auto-generated from YAML; 3 ship-ready pipelines (express, clinical_derivation, enterprise); per-step executor registry |
+| Phase 15 (resilience) | 259 | 19/19 | Per-step checkpointing, atomic `/rerun`, failed-run visibility, lineage DAG, display heal bundles |
+| Phase 16 (LTM + HITL depth + ground truth) | 310 | 19/19 | LTM repositories wired (Pattern, Feedback, QCHistory); HITL = one deep gate with 3 actions (approve-with-feedback / reject-with-reason / override-code); `ground_truth_check` builtin + endpoint; cleanup of stale deps/scripts/docs |
+| Phase 17 (LTM read loop + audit + cleanup) | 315 | 19/19 | 3 coder tools with authority hierarchy (query_feedback > query_qc_history > query_patterns); per-variable audit events (CODER_PROPOSED / QC_VERDICT / DEBUGGER_RESOLVED); 5 Phase-16 testing bugs closed |
+| **Phase 18.1 (SDTM snapshot — current)** | **318** | **19/19** | Bug #6 closed — `parse_spec` writes `{wf_id}_source.csv` to disk so Data-tab SDTM panel survives backend restart; `_load_source` reads disk-first with ctx fallback |

@@ -51,3 +51,6 @@ htmlcov/
 ~$*.ppt
 ~$*.xlsx
 ~$*.xls
+
+# internal
+docs/archives

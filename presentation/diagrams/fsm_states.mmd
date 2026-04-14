@@ -1,22 +1,31 @@
+---
+title: Pipeline FSM — clinical_derivation.yaml
+---
 stateDiagram-v2
     [*] --> created
     completed --> [*]
     failed --> [*]
-    created --> spec_review : start spec review
-    spec_review --> dag_built : finish spec review
-    dag_built --> deriving : start deriving
-    deriving --> verifying : start verifying
-    verifying --> deriving : next variable
-    verifying --> debugging : start debugging
-    verifying --> review : finish review from verify
-    debugging --> verifying : retry from debug
-    debugging --> review : finish review from debug
-    review --> auditing : start auditing
-    auditing --> completed : finish
 
-    note right of failed : Any non-terminal state\ncan transition to failed
+    created --> parse_spec : start
+    parse_spec --> build_dag : parse_spec complete
+    build_dag --> derive_variables : build_dag complete
+    derive_variables --> ground_truth_check : derive_variables complete
+    ground_truth_check --> human_review : ground_truth_check complete
+    human_review --> save_patterns : human_review complete
+    save_patterns --> audit : save_patterns complete
+    audit --> export : audit complete
+    export --> completed : pipeline finished
+    human_review --> failed : reviewer rejected
+
+    note right of failed
+        Any non-terminal step can transition to failed.
+        Rejection from a HITL gate is a clean failure
+        (WorkflowRejectedError, inherits from Exception).
+    end note
 
     classDef terminal fill:#e74c3c,color:#fff,stroke:#c0392b
     classDef success fill:#2ecc71,color:#fff,stroke:#27ae60
+    classDef hitl fill:#f39c12,color:#fff,stroke:#d68910
     class failed terminal
     class completed success
+    class human_review hitl
