@@ -151,12 +151,23 @@ async def test_hitl_gate_with_rejection_flag_raises_workflow_rejected_error(mock
     approved_records = [r for r in mock_ctx.audit_trail.records if r.action == AuditAction.HUMAN_APPROVED]
     assert len(approved_records) == 0
 
+    # STEP_STARTED is always emitted; STEP_COMPLETED is NOT emitted on the reject path
+    # because the executor raises before reaching it.
+    started_records = [r for r in mock_ctx.audit_trail.records if r.action == AuditAction.STEP_STARTED]
+    completed_records = [r for r in mock_ctx.audit_trail.records if r.action == AuditAction.STEP_COMPLETED]
+    assert len(started_records) == 1
+    assert len(completed_records) == 0
+
 
 async def test_hitl_gate_without_rejection_flag_records_human_approved(mock_ctx: PipelineContext) -> None:
     """HITLGateStepExecutor records HUMAN_APPROVED and does not raise when rejection flag is not set."""
     # Arrange
     step = StepDefinition(id="review_gate", type=StepType.HITL_GATE)
     mock_ctx.rejection_requested = False
+    # Simulate workflow_hitl.approve_with_feedback_impl having populated these before event.set():
+    mock_ctx.approval_reason = "looks good overall"
+    mock_ctx.approval_approved_vars = ["AGE_GROUP", "TREATMENT_DURATION"]
+    mock_ctx.approval_rejected_vars = ["RISK_SCORE"]
     executor = HITLGateStepExecutor()
 
     # Act — start executor as a task, then set the event once it registers in ctx
@@ -166,10 +177,50 @@ async def test_hitl_gate_without_rejection_flag_records_human_approved(mock_ctx:
     event.set()
     await task
 
-    # Assert
+    # Assert — HUMAN_APPROVED carries per-variable decisions + reason
     approved_records = [r for r in mock_ctx.audit_trail.records if r.action == AuditAction.HUMAN_APPROVED]
     assert len(approved_records) == 1
-    assert approved_records[0].details == {"gate": "review_gate"}
+    details = approved_records[0].details
+    assert details["gate"] == "review_gate"
+    assert details["reason"] == "looks good overall"
+    assert details["approved"] == "AGE_GROUP, TREATMENT_DURATION"
+    assert details["rejected"] == "RISK_SCORE"
+    assert details["approved_count"] == 2
+    assert details["rejected_count"] == 1
 
     rejected_records = [r for r in mock_ctx.audit_trail.records if r.action == AuditAction.HUMAN_REJECTED]
     assert len(rejected_records) == 0
+
+    # Approve path emits both STEP_STARTED and STEP_COMPLETED for symmetry with other step executors
+    started_records = [r for r in mock_ctx.audit_trail.records if r.action == AuditAction.STEP_STARTED]
+    completed_records = [r for r in mock_ctx.audit_trail.records if r.action == AuditAction.STEP_COMPLETED]
+    assert len(started_records) == 1
+    assert len(completed_records) == 1
+
+
+async def test_hitl_gate_without_approval_payload_uses_legacy_fallback(mock_ctx: PipelineContext) -> None:
+    """When /approve is called with no body (backwards compat), the approval lists are empty.
+
+    HUMAN_APPROVED details show the "(legacy no-body approve — all variables)" fallback.
+    """
+    # Arrange
+    step = StepDefinition(id="review_gate", type=StepType.HITL_GATE)
+    # mock_ctx.approval_reason / approval_approved_vars / approval_rejected_vars all default-empty
+    executor = HITLGateStepExecutor()
+
+    # Act
+    task = asyncio.create_task(executor.execute(step, mock_ctx))
+    await asyncio.sleep(0)
+    event = mock_ctx.step_outputs["review_gate"]["_approval_event"]
+    event.set()
+    await task
+
+    # Assert — legacy fallback text appears in details
+    approved_records = [r for r in mock_ctx.audit_trail.records if r.action == AuditAction.HUMAN_APPROVED]
+    assert len(approved_records) == 1
+    details = approved_records[0].details
+    assert details["reason"] == "(no reason provided)"
+    assert details["approved"] == "(legacy no-body approve — all variables)"
+    assert details["rejected"] == "(none)"
+    assert details["approved_count"] == 0
+    assert details["rejected_count"] == 0
