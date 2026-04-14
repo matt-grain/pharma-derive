@@ -10,6 +10,33 @@ services:
       - frontend
     restart: unless-stopped
 
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - POSTGRES_DB=${POSTGRES_DB:-app_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-app_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  agentlens:
+    image: agentlens:latest
+    restart: unless-stopped
+    command: uv run agentlens serve
+    expose:
+      - "8650"
+    volumes:
+      - ./output:/app/traces 
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+  
   backend:
     build: .
     expose:
@@ -18,9 +45,14 @@ services:
       - ./output:/app/output
       - ./data:/app/data:ro
     environment:
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:8650/v1}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://agentlens:8650/v1}
       - LLM_API_KEY=${LLM_API_KEY:-not-needed-for-mailbox}
-      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///cdde.db}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://user:password@db:5432/app_db}
+    depends_on:
+      db:
+        condition: service_healthy
+      agentlens:
+        condition: service_started
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -36,3 +68,6 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  postgres_data:
