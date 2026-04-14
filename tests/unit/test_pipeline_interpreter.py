@@ -165,3 +165,30 @@ async def test_interpreter_without_fsm_runs_successfully() -> None:
         new=AsyncMock(),
     ):
         await interpreter.run()  # must not raise
+
+
+async def test_completed_steps_lists_steps_in_completion_order() -> None:
+    """completed_steps reflects each step in the order it finished after run() completes."""
+    # Arrange — 3-step linear pipeline (a → b → c), all builtin noops
+    steps = [
+        StepDefinition(id="step_a", type=StepType.BUILTIN, builtin="noop"),
+        StepDefinition(id="step_b", type=StepType.BUILTIN, builtin="noop", depends_on=["step_a"]),
+        StepDefinition(id="step_c", type=StepType.BUILTIN, builtin="noop", depends_on=["step_b"]),
+    ]
+    pipeline = PipelineDefinition(name="test_pipeline", steps=steps)
+    ctx = PipelineContext(workflow_id="test-completed", audit_trail=AuditTrail("test-completed"), llm_base_url="")
+    interpreter = PipelineInterpreter(pipeline, ctx)
+
+    # Act
+    with patch(
+        "src.engine.pipeline_interpreter.PipelineInterpreter._execute_step",
+        new=AsyncMock(),
+    ):
+        await interpreter.run()
+
+    # Assert — all three steps present in topological order, property returns a copy not internal list
+    completed = interpreter.completed_steps
+    assert [s.id for s in completed] == ["step_a", "step_b", "step_c"]
+    # Mutation of the returned list must not affect internal state
+    completed.clear()
+    assert len(interpreter.completed_steps) == 3

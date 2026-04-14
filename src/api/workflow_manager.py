@@ -21,6 +21,7 @@ from src.api.workflow_lifecycle import (
 )
 from src.api.workflow_serializer import HistoricState, build_result
 from src.config.settings import get_settings
+from src.domain.exceptions import WorkflowRejectedError
 from src.factory import create_pipeline_orchestrator
 
 if TYPE_CHECKING:
@@ -51,7 +52,6 @@ class WorkflowManager:
         self._completed_at: dict[str, str] = {}
 
     async def load_history(self, state_repo: WorkflowStateRepository) -> None:
-        """Load completed/failed workflows from DB so they appear in listings after restart."""
         rows = await state_repo.list_all()
         for wf_id, fsm_state, state_json in rows:
             self._history[wf_id] = _HistoricState(wf_id, fsm_state, state_json)
@@ -63,7 +63,6 @@ class WorkflowManager:
         llm_base_url: str | None = None,
         output_dir: Path | None = None,
     ) -> str:
-        """Create pipeline interpreter, start run as background task, return workflow_id."""
         effective_output = output_dir or Path(get_settings().output_dir)
         interpreter, ctx, fsm, session = await create_pipeline_orchestrator(
             spec_path, llm_base_url=llm_base_url, output_dir=effective_output
@@ -86,7 +85,6 @@ class WorkflowManager:
         fsm: PipelineFSM,
         session: AsyncSession,
     ) -> WorkflowResult:
-        """Run the pipeline with checkpointing; delegates each lifecycle phase to workflow_lifecycle."""
         from src.persistence.workflow_state_repo import WorkflowStateRepository
 
         state_repo = WorkflowStateRepository(session)
@@ -101,12 +99,14 @@ class WorkflowManager:
             logger.info("Workflow {wf_id} completed successfully", wf_id=wf_id)
             return result
 
+        except WorkflowRejectedError as exc:
+            # Rejection: log INFO and return (not raise) so the asyncio Task completes cleanly.
+            logger.info("Workflow {wf_id} rejected by human: {reason}", wf_id=wf_id, reason=str(exc))
+            return await self._fail_and_persist(wf_id, exc, interpreter, ctx, fsm, session, started_at)
+
         except Exception as exc:
             logger.exception("Workflow {wf_id} failed", wf_id=wf_id)
-            record_failure_audit(ctx, exc, interpreter.current_step)
-            fsm.fail(str(exc))
-            self._completed_at[wf_id] = datetime.now(UTC).isoformat()
-            await persist_error_state(state_repo, session, wf_id, ctx, started_at, self._completed_at[wf_id])
+            await self._fail_and_persist(wf_id, exc, interpreter, ctx, fsm, session, started_at)
             raise
         finally:
             self._completed_at.setdefault(wf_id, datetime.now(UTC).isoformat())
@@ -115,16 +115,34 @@ class WorkflowManager:
             self._active.pop(wf_id, None)
             self._sessions.pop(wf_id, None)
 
+    async def _fail_and_persist(
+        self,
+        wf_id: str,
+        exc: BaseException,
+        interpreter: PipelineInterpreter,
+        ctx: PipelineContext,
+        fsm: PipelineFSM,
+        session: AsyncSession,
+        started_at: str | None,
+    ) -> WorkflowResult:
+        from src.persistence.workflow_state_repo import WorkflowStateRepository
+
+        record_failure_audit(ctx, exc, interpreter.current_step)
+        fsm.fail(str(exc))
+        self._completed_at[wf_id] = datetime.now(UTC).isoformat()
+        state_repo = WorkflowStateRepository(session)
+        await persist_error_state(state_repo, session, wf_id, ctx, started_at, self._completed_at[wf_id])
+        result = build_result(wf_id, ctx, fsm)
+        self._results[wf_id] = result
+        return result
+
     def get_interpreter(self, workflow_id: str) -> PipelineInterpreter | None:
-        """Get the interpreter for an active workflow."""
         return self._interpreters.get(workflow_id)
 
     def get_context(self, workflow_id: str) -> PipelineContext | None:
-        """Get the pipeline context for an active workflow."""
         return self._contexts.get(workflow_id)
 
     def get_fsm(self, workflow_id: str) -> PipelineFSM | None:
-        """Get the FSM tracker for an active or completed workflow."""
         return self._fsms.get(workflow_id)
 
     def get_approval_event(self, workflow_id: str) -> asyncio.Event | None:
@@ -139,23 +157,18 @@ class WorkflowManager:
         return None
 
     def get_started_at(self, workflow_id: str) -> str | None:
-        """Return ISO 8601 start timestamp for an active or completed workflow."""
         return self._started_at.get(workflow_id)
 
     def get_completed_at(self, workflow_id: str) -> str | None:
-        """Return ISO 8601 completion timestamp once the workflow has finished."""
         return self._completed_at.get(workflow_id)
 
     def get_historic(self, workflow_id: str) -> _HistoricState | None:
-        """Get lightweight historic state loaded from DB."""
         return self._history.get(workflow_id)
 
     def get_result(self, workflow_id: str) -> WorkflowResult | None:
-        """Get result for a completed workflow."""
         return self._results.get(workflow_id)
 
     def is_running(self, workflow_id: str) -> bool:
-        """Check if a workflow is still running."""
         return workflow_id in self._active
 
     def is_known(self, workflow_id: str) -> bool:
@@ -164,27 +177,19 @@ class WorkflowManager:
 
     @property
     def active_count(self) -> int:
-        """Number of currently running workflows."""
         return len(self._active)
 
     def list_workflow_ids(self) -> list[str]:
-        """All known workflow IDs (active, completed, failed, and historic).
+        """All known workflow IDs — active, completed, failed, and historic.
 
-        Uses ``_interpreters`` rather than ``_active`` because ``_active`` only
-        tracks RUNNING tasks — failed workflows are popped from it in the
-        ``finally`` block of ``_run_and_cleanup`` but their ctx/fsm remain in
-        memory, so they must stay visible in listings until the next restart.
+        Uses _interpreters (not _active) because _active is emptied in the finally block
+        of _run_and_cleanup, making failed workflows vanish from listings otherwise.
         """
         return list({*self._interpreters.keys(), *self._results.keys(), *self._history.keys()})
 
     async def rerun_workflow(self, workflow_id: str) -> str:
-        """Restart a workflow: start a fresh run with the same spec, then delete the old one.
-
-        Resolves the source spec from the in-memory context when available, otherwise
-        falls back to the historic DB row (which carries ``spec_path``). The old workflow
-        is only deleted after the new one has successfully started, so a spec-resolution
-        failure leaves the original untouched. Raises ``KeyError`` if the spec path
-        cannot be recovered.
+        """Restart a workflow with the same spec. Resolves spec from ctx or DB history.
+        Old workflow is deleted only after the new one starts. Raises KeyError if no spec found.
         """
         spec_path: str | None = None
         ctx = self._contexts.get(workflow_id)
@@ -205,7 +210,6 @@ class WorkflowManager:
         return new_id
 
     async def delete_workflow(self, workflow_id: str) -> None:
-        """Remove a workflow from in-memory stores, DB state, and output files."""
         from src.persistence.database import init_db
         from src.persistence.workflow_state_repo import WorkflowStateRepository
 
@@ -228,14 +232,9 @@ class WorkflowManager:
                 path.unlink()
 
     def get_session(self, workflow_id: str) -> AsyncSession | None:
-        """Return the live AsyncSession for an active workflow, or None."""
         return self._sessions.get(workflow_id)
 
-    async def approve_with_feedback(
-        self,
-        workflow_id: str,
-        payload: ApprovalRequest | None,
-    ) -> None:
+    async def approve_with_feedback(self, workflow_id: str, payload: ApprovalRequest | None) -> None:
         """Set the HITL approval event AND persist per-variable feedback to the repository."""
         from src.api.workflow_hitl import approve_with_feedback_impl
 
@@ -259,7 +258,6 @@ class WorkflowManager:
         await reject_workflow_impl(ctx, event, self._sessions.get(workflow_id), reason)
 
     async def cancel_active(self) -> None:
-        """Cancel all running workflows. Used for graceful shutdown and test cleanup."""
         tasks = list(self._active.values())
         for task in tasks:
             task.cancel()

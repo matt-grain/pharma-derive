@@ -81,4 +81,30 @@ describe('CodeEditorDialog', () => {
       'Fixed boundary condition',
     )
   })
+
+  it('should not display previous error after dialog is closed and reopened', () => {
+    // Arrange — render with an error banner visible (simulates a failed submission)
+    const props = {
+      open: true,
+      onOpenChange: vi.fn(),
+      variable: 'AGEGR1',
+      currentCode: INITIAL_CODE,
+      onSave: vi.fn(),
+      isSaving: false,
+      error: '400: Invalid Python syntax',
+    }
+    const { rerender } = render(<CodeEditorDialog {...props} />)
+
+    // Sanity check — error banner is present
+    expect(screen.getByText('400: Invalid Python syntax')).toBeInTheDocument()
+
+    // Act — close the dialog (parent clears error and sets open=false via onOpenChange)
+    rerender(<CodeEditorDialog {...props} open={false} error={null} />)
+
+    // Act — reopen the dialog with no error (simulates a fresh edit session)
+    rerender(<CodeEditorDialog {...props} open={true} error={null} />)
+
+    // Assert — stale error banner must not be visible
+    expect(screen.queryByText('400: Invalid Python syntax')).not.toBeInTheDocument()
+  })
 })

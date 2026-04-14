@@ -37,11 +37,17 @@ class PipelineInterpreter:
         self._fsm = fsm
         self._execution_order = topological_sort(pipeline.steps)
         self._current_step: str | None = None
+        self._completed_steps: list[StepDefinition] = []
 
     @property
     def current_step(self) -> str | None:
         """The ID of the currently executing step, or None if not started/finished."""
         return self._current_step
+
+    @property
+    def completed_steps(self) -> list[StepDefinition]:
+        """Steps that have completed successfully so far in this run."""
+        return list(self._completed_steps)
 
     @property
     def pipeline(self) -> PipelineDefinition:
@@ -73,6 +79,7 @@ class PipelineInterpreter:
             if self._fsm is not None:
                 self._fsm.advance(step.id)
             await self._execute_step(step)
+            self._completed_steps.append(step)
             if on_step_complete is not None:
                 await on_step_complete(step.id)
 

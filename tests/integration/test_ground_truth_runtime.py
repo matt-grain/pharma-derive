@@ -211,11 +211,16 @@ async def test_ground_truth_endpoint_returns_report(
     await BUILTIN_REGISTRY["compare_ground_truth"](_COMPARE_STEP, ctx)
     assert ctx.ground_truth_report is not None
 
-    # Wire context into manager
+    # Wire context into manager — interpreter must be non-None for the endpoint to return data
+    from src.domain.pipeline_models import PipelineDefinition
+    from src.engine.pipeline_interpreter import PipelineInterpreter
+
     fsm = PipelineFSM(wf_id, step_ids=["parse_spec", "compare_ground_truth"])
+    mock_pipeline = PipelineDefinition(name="test", steps=[])
+    mock_interpreter = PipelineInterpreter(mock_pipeline, ctx)
     manager._contexts[wf_id] = ctx  # type: ignore[attr-defined]
     manager._fsms[wf_id] = fsm  # type: ignore[attr-defined]
-    manager._interpreters[wf_id] = None  # type: ignore[index]
+    manager._interpreters[wf_id] = mock_interpreter  # type: ignore[attr-defined]
     manager._started_at[wf_id] = "2024-01-01T00:00:00"  # type: ignore[attr-defined]
 
     # Act
@@ -252,11 +257,16 @@ async def test_ground_truth_endpoint_404_when_not_run(
         audit_trail=AuditTrail(wf_id),
         llm_base_url="http://localhost:8650/v1",
     )
-    # ground_truth_report is None (step never ran)
+    # ground_truth_report is None (step never ran) — interpreter with no completed steps
+    from src.domain.pipeline_models import PipelineDefinition
+    from src.engine.pipeline_interpreter import PipelineInterpreter
+
     fsm = PipelineFSM(wf_id, step_ids=["parse_spec"])
+    mock_pipeline = PipelineDefinition(name="test", steps=[])
+    mock_interpreter = PipelineInterpreter(mock_pipeline, ctx)
     manager._contexts[wf_id] = ctx  # type: ignore[attr-defined]
     manager._fsms[wf_id] = fsm  # type: ignore[attr-defined]
-    manager._interpreters[wf_id] = None  # type: ignore[index]
+    manager._interpreters[wf_id] = mock_interpreter  # type: ignore[attr-defined]
     manager._started_at[wf_id] = "2024-01-01T00:00:00"  # type: ignore[attr-defined]
 
     # Act
@@ -264,7 +274,103 @@ async def test_ground_truth_endpoint_404_when_not_run(
 
     # Assert
     assert response.status_code == 404
-    assert "Ground truth check has not been run" in response.json()["detail"]
+    assert "Ground truth check has not yet run" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Test 5 — graceful skip when no ground_truth configured in spec
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Test 6 — endpoint 404 "not yet run": interpreter exists but step not completed
+# ---------------------------------------------------------------------------
+
+
+async def test_ground_truth_endpoint_returns_404_with_premature_message_when_step_not_run(
+    client_and_manager: tuple[AsyncClient, object],
+) -> None:
+    """GET /ground_truth returns 404 with 'not yet run' message when ground_truth_check hasn't completed."""
+    # Arrange — interpreter present but no completed steps; report is None
+    from src.api.workflow_manager import WorkflowManager
+    from src.domain.pipeline_models import PipelineDefinition
+    from src.engine.pipeline_fsm import PipelineFSM
+    from src.engine.pipeline_interpreter import PipelineInterpreter
+
+    client, manager = client_and_manager
+    assert isinstance(manager, WorkflowManager)
+
+    wf_id = "gt-premature-01"
+    ctx = PipelineContext(
+        workflow_id=wf_id,
+        audit_trail=AuditTrail(wf_id),
+        llm_base_url="http://localhost:8650/v1",
+    )
+    # ground_truth_report stays None — step never ran
+    fsm = PipelineFSM(wf_id, step_ids=["parse_spec"])
+    mock_pipeline = PipelineDefinition(name="test", steps=[])
+    interpreter = PipelineInterpreter(mock_pipeline, ctx)
+    # No steps have been appended to interpreter._completed_steps
+    manager._contexts[wf_id] = ctx  # type: ignore[attr-defined]
+    manager._fsms[wf_id] = fsm  # type: ignore[attr-defined]
+    manager._interpreters[wf_id] = interpreter  # type: ignore[attr-defined]
+    manager._started_at[wf_id] = "2024-01-01T00:00:00"  # type: ignore[attr-defined]
+
+    # Act
+    response = await client.get(f"/api/v1/workflows/{wf_id}/ground_truth")
+
+    # Assert
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Ground truth check has not yet run for this workflow"
+
+
+# ---------------------------------------------------------------------------
+# Test 7 — endpoint 404 "no path": ground_truth_check completed but spec lacks path
+# ---------------------------------------------------------------------------
+
+
+async def test_ground_truth_endpoint_returns_404_with_no_path_message_when_spec_lacks_ground_truth_path(
+    client_and_manager: tuple[AsyncClient, object],
+) -> None:
+    """GET /ground_truth returns 404 with 'no path' message when step ran but spec has no ground_truth_path."""
+    # Arrange — interpreter has ground_truth_check in completed steps; report is still None
+    from src.api.workflow_manager import WorkflowManager
+    from src.domain.pipeline_models import PipelineDefinition, StepDefinition, StepType
+    from src.engine.pipeline_fsm import PipelineFSM
+    from src.engine.pipeline_interpreter import PipelineInterpreter
+
+    client, manager = client_and_manager
+    assert isinstance(manager, WorkflowManager)
+
+    wf_id = "gt-no-path-01"
+    ctx = PipelineContext(
+        workflow_id=wf_id,
+        audit_trail=AuditTrail(wf_id),
+        llm_base_url="http://localhost:8650/v1",
+    )
+    # ground_truth_report is None because spec has no ground_truth_path (builtin short-circuits)
+    gt_check_step = StepDefinition(
+        id="ground_truth_check",
+        type=StepType.BUILTIN,
+        builtin="compare_ground_truth",
+    )
+    mock_pipeline = PipelineDefinition(name="test", steps=[gt_check_step])
+    interpreter = PipelineInterpreter(mock_pipeline, ctx)
+    # Simulate that ground_truth_check ran (completed) but produced no report
+    interpreter._completed_steps.append(gt_check_step)  # type: ignore[attr-defined]
+
+    fsm = PipelineFSM(wf_id, step_ids=["ground_truth_check"])
+    manager._contexts[wf_id] = ctx  # type: ignore[attr-defined]
+    manager._fsms[wf_id] = fsm  # type: ignore[attr-defined]
+    manager._interpreters[wf_id] = interpreter  # type: ignore[attr-defined]
+    manager._started_at[wf_id] = "2024-01-01T00:00:00"  # type: ignore[attr-defined]
+
+    # Act
+    response = await client.get(f"/api/v1/workflows/{wf_id}/ground_truth")
+
+    # Assert
+    assert response.status_code == 404
+    assert response.json()["detail"] == "No ground truth report available — spec has no ground_truth_path declared"
 
 
 # ---------------------------------------------------------------------------

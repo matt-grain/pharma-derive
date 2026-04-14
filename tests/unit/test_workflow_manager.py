@@ -503,6 +503,54 @@ async def test_run_and_cleanup_checkpoints_after_each_step() -> None:
     assert mock_session.commit.await_count == 3
 
 
+async def test_reject_workflow_does_not_emit_task_exception_warning(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """WorkflowRejectedError is caught cleanly — task returns normally, no 'Task exception' warning."""
+    from src.domain.exceptions import WorkflowRejectedError
+
+    # Arrange
+    manager = WorkflowManager()
+    wf_id = "wf-test-rejection"
+    ctx = PipelineContext(workflow_id=wf_id, audit_trail=AuditTrail(wf_id), llm_base_url="http://localhost")
+
+    mock_interpreter = AsyncMock()
+    mock_interpreter.run = AsyncMock(side_effect=WorkflowRejectedError("human said no"))
+    mock_interpreter.current_step = "human_review"
+
+    mock_fsm = MagicMock()
+    mock_fsm.current_state_value = "failed"
+    mock_fsm.is_terminal = True
+    mock_fsm.is_failed = True
+
+    mock_session = AsyncMock()
+
+    manager._interpreters[wf_id] = mock_interpreter  # type: ignore[assignment]
+    manager._contexts[wf_id] = ctx  # pyright: ignore[reportPrivateUsage]
+    manager._fsms[wf_id] = mock_fsm  # pyright: ignore[reportPrivateUsage]
+    manager._sessions[wf_id] = mock_session  # pyright: ignore[reportPrivateUsage]
+    manager._started_at[wf_id] = "2024-01-01T00:00:00+00:00"  # pyright: ignore[reportPrivateUsage]
+
+    with (
+        patch("src.api.workflow_manager.persist_error_state", new_callable=AsyncMock),
+        patch("src.api.workflow_manager.persist_audit_trail"),
+        patch("src.api.workflow_manager.build_result", return_value=MagicMock()),
+    ):
+        # Act — must NOT raise; the task completes with a return value
+        result = await manager._run_and_cleanup(wf_id, mock_interpreter, ctx, mock_fsm, mock_session)  # pyright: ignore[reportPrivateUsage]
+
+    # Assert — function returned a result (task completed cleanly, did not raise)
+    assert result is not None
+
+    # Assert — "Task exception was never retrieved" is NOT in stderr
+    # (that warning only appears when a Task raises — here we return instead of raising)
+    captured = capsys.readouterr()
+    assert "Task exception was never retrieved" not in captured.err
+
+    # Assert — no traceback for WorkflowRejectedError leaking to stderr
+    assert "WorkflowRejectedError" not in captured.err
+
+
 @pytest.fixture
 def sample_spec_path() -> str:
     """Path to a valid spec for testing."""

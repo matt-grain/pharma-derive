@@ -140,13 +140,18 @@ async def get_ground_truth(
 ) -> GroundTruthReportResponse:
     """Return the ground-truth comparison report for a workflow, if the step has run."""
     ctx = manager.get_context(workflow_id)
-    if ctx is None:
+    interpreter = manager.get_interpreter(workflow_id)
+    if ctx is None or interpreter is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
     if ctx.ground_truth_report is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Ground truth check has not been run for this workflow",
+        # Distinguish "step hasn't run yet" from "spec has no ground_truth_path"
+        step_ran = "ground_truth_check" in {s.id for s in interpreter.completed_steps}
+        detail = (
+            "No ground truth report available — spec has no ground_truth_path declared"
+            if step_ran
+            else "Ground truth check has not yet run for this workflow"
         )
+        raise HTTPException(status_code=404, detail=detail)
     return GroundTruthReportResponse.model_validate(ctx.ground_truth_report.model_dump())
 
 

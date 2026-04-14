@@ -76,10 +76,16 @@ export function CodePanel({ node, workflowId, status }: CodePanelProps) {
 
       <CodeEditorDialog
         open={editingVariable === node.variable}
-        onOpenChange={(open) => { if (!open) setEditingVariable(null) }}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingVariable(null)
+            overrideMutation.reset() // clear stale error from any previous failed submission
+          }
+        }}
         variable={editingVariable ?? ''}
         currentCode={currentNode?.approved_code ?? node.approved_code ?? node.coder_code ?? ''}
         onSave={(newCode, reason) => {
+          overrideMutation.reset() // clear prior error before new submission so banner resets on retry
           overrideMutation.mutate(
             { variable: node.variable, payload: { new_code: newCode, reason } },
             { onSuccess: () => setEditingVariable(null) },

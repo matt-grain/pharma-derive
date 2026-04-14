@@ -259,3 +259,48 @@ system_prompt: |
 - **Bug #5 is the architectural gap that makes the entire HITL story credible (or not).** A reviewer asking "how does your system learn from human corrections?" is a question this gap answers with "it doesn't, today" — which would invalidate a major demo claim.
 
 **Workaround for the demo:** be honest about the scope. Frame the current LTM as "Phase 16 ships the patterns side of the loop — feedback and QC history are persisted but not yet surfaced to the agent. Phase 17 closes the loop." This is a credible roadmap statement and is much better than getting blindsided by the question on stage.
+
+---
+
+## #6 — Data tab loses SDTM source panel after backend restart (pre-existing, NOT a Phase 17 regression)
+
+**Surfaced by:** Matt noticed during Phase 17.3 work (2026-04-14). *"in the frontend I was pretty sure in the data tab there was 2 frames: the SDTM source data table then the ADaM table. Now there is only the ADaM table"*
+
+**Symptom:** Open the Data tab on any workflow that survived a backend restart. Only the ADaM (derived) panel renders. The SDTM (source) panel silently disappears.
+
+**Root cause (verified by reading `src/api/routers/data.py::_load_source` + `src/api/workflow_manager.py::get_context`):**
+
+The `/api/v1/workflows/{id}/data` endpoint returns two datasets:
+- `derived` → loaded from `output_dir/{wf_id}_adam.csv` on disk (survives restart ✓)
+- `source` → loaded by calling `load_source_data(ctx.spec)` where `ctx = manager.get_context(workflow_id)`
+
+`WorkflowManager.get_context()` ONLY returns workflows from the in-memory `self._contexts` dict. **Historic workflows** (loaded from the DB via `WorkflowManager.load_history()` after a backend restart) live in `self._history` instead — they do NOT have a live `PipelineContext` with a populated `spec`. So for any post-restart workflow:
+1. `manager.get_context(workflow_id)` returns `None`
+2. `_load_source()` short-circuits: `spec is None → return None`
+3. Backend returns `DataPreviewResponse(source=None, derived=<still-valid preview>)`
+4. Frontend `DataTab.tsx:195` renders only the `derived` panel because `data.source == null`
+
+**Why Matt hit this now:** The Phase 16 testing session restarted the backend multiple times. Any workflow Matt opens now that was started BEFORE the last restart (e.g. `bfdb3536`, `290eda64`, `c7329784`, `47f0f061`, `c208a8c2`) has no in-memory ctx and therefore no source preview.
+
+**This is NOT a Phase 17 regression** — it existed from the moment historic-workflow reload was wired in (Phase 14 or earlier). It just wasn't noticed because manual testing rarely exercised the "view a workflow after restart" path until this session's multi-restart loop.
+
+**Why it matters:**
+- Demo risk: if a reviewer asks to see the SDTM → ADaM transformation side-by-side on a workflow from an earlier day, only the ADaM will show. Degrades the "we see both sides" story.
+- Training-sample audit: SDTM is the INPUT contract. Losing visibility into the inputs means reviewers can't audit what the agent was working with.
+
+**Proposed fix (Phase 18 or later, NOT 17):**
+
+Two clean approaches:
+
+1. **Persist source data snapshot to disk at `parse_spec` time** (simplest). In the `parse_spec` builtin, after loading source data, write it as `output_dir/{wf_id}_source.csv` alongside the `_adam.csv` output. Then `_load_source()` reads from disk first, and only falls back to `ctx.spec` if the disk file is missing. Trade-off: doubles disk usage per workflow (but SDTM is small — <1 MB per study).
+
+2. **Re-parse the spec from `spec_path` for historic workflows**. The historic record (`_history[wf_id]`) carries the `spec_path` string. Modify `_load_source()` to:
+   - Try `manager.get_context(wf_id).spec` first
+   - Fall back to `manager.get_historic(wf_id).spec_path` → re-parse the YAML → call `load_source_data()`
+   Trade-off: slower (re-reads YAML + CSV on every Data tab view), and fragile if the YAML file moves or gets edited after the run.
+
+**Recommendation:** Option 1 (disk snapshot). Matches the existing `_load_derived` pattern exactly — both come from disk, both survive restarts, both are cheap reads. Aligns with the regulatory expectation that input data should be preserved alongside output data.
+
+**Scope estimate:** 30-45 min. Touches `src/engine/step_builtins.py::parse_spec` (write snapshot) + `src/api/routers/data.py::_load_source` (prefer disk snapshot) + 1-2 integration tests.
+
+**Workaround for the demo:** if you need to show the 2-panel Data tab live, start a FRESH workflow during the demo — don't try to open a historic one. Or restart the backend right before the demo and only view workflows started after that point.
