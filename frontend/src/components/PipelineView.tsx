@@ -20,9 +20,13 @@ type PipelineViewProps = {
 const NODE_W = 280
 const NODE_H = 96
 
-const STEP_STYLE: Record<string, { icon: typeof Bot; bg: string; border: string }> = {
+type StepStyle = { icon: typeof Bot; bg: string; border: string }
+// Extracted so the `?? DEFAULT_STEP_STYLE` fallback below is provably non-null
+// under noUncheckedIndexedAccess (Record<string, T> index access returns T | undefined).
+const DEFAULT_STEP_STYLE: StepStyle = { icon: Cog, bg: '#f8fafc', border: '#cbd5e1' }
+const STEP_STYLE: Record<string, StepStyle> = {
   agent:        { icon: Bot,       bg: '#eff6ff', border: '#93c5fd' },
-  builtin:      { icon: Cog,       bg: '#f8fafc', border: '#cbd5e1' },
+  builtin:      DEFAULT_STEP_STYLE,
   gather:       { icon: GitMerge,  bg: '#f5f3ff', border: '#c4b5fd' },
   parallel_map: { icon: Layers,    bg: '#ecfdf5', border: '#6ee7b7' },
   hitl_gate:    { icon: UserCheck, bg: '#fffbeb', border: '#fcd34d' },
@@ -74,7 +78,7 @@ function buildLayout(steps: PipelineStep[]): { nodes: Node[]; edges: Edge[] } {
 
   const flowNodes: Node[] = steps.map((s) => {
     const pos = g.node(s.id)
-    const style = STEP_STYLE[s.type] ?? STEP_STYLE['builtin']
+    const style = STEP_STYLE[s.type] ?? DEFAULT_STEP_STYLE
     return {
       id: s.id,
       type: 'pipeline',
@@ -96,7 +100,7 @@ function buildLayout(steps: PipelineStep[]): { nodes: Node[]; edges: Edge[] } {
 
 function PipelineNodeContent({ data }: { data: { step: PipelineStep } }) {
   const { step } = data
-  const style = STEP_STYLE[step.type] ?? STEP_STYLE['builtin']
+  const style = STEP_STYLE[step.type] ?? DEFAULT_STEP_STYLE
   const Icon = style.icon
   const agents = agentLabel(step)
 

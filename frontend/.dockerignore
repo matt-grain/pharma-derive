@@ -1,3 +1,46 @@
+# Only package.json, pnpm-lock.yaml, vite/tsconfig configs, index.html, and
+# src/ need to be in the frontend builder context. Everything else excluded.
+
+# Node dependencies + build output
 node_modules/
 dist/
+.vite/
+
+# Caches
+.cache/
+.eslintcache
+
+# Git / VCS
+.git/
+.gitignore
+.gitattributes
+
+# Tests + coverage
+coverage/
+*.test.tsx
+*.test.ts
+test-setup.ts
+tests/
+
+# IDE / editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment + secrets
 .env
+.env.local
+.env.*.local
+
+# Docs + internal
+README.md
+*.md
+
+# Docker helpers
+Dockerfile
+.dockerignore
+
+# Legacy lockfile (we use pnpm; package-lock.json is stale and must NOT
+# end up in the build context where `pnpm install` would see it and warn)
+package-lock.json

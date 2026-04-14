@@ -1,17 +1,62 @@
+# Only src/, specs/, config/, pyproject.toml, and uv.lock need to be in the
+# backend image. Everything else is excluded for size, security, and speed.
+
+# Python virtualenvs + caches
 .venv/
-.git/
+venv/
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
-cdde.db
+.coverage.*
+htmlcov/
+
+# Git / VCS
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# Node / frontend (backend image never needs these)
+frontend/
+node_modules/
+
+# Runtime artefacts (mounted as volumes in compose, not baked in)
 output/
 traces/
-frontend/
-.claude/
-node_modules/
-*.md
+data/
+cdde.db
+cdde.db-journal
+cdde.db-wal
+cdde.db-shm
+
+# IDE / editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Docs + internal working files (not needed in the image)
+docs/
+presentation/
 tests/
 tools/
-presentation/
 scripts/
-.github/
+*.md
+
+# Claude / agent memory / local settings
+.claude/
+
+# Environment files (compose injects configuration via environment blocks)
+.env
+.env.local
+.env.example
+
+# Docker helpers themselves
+Dockerfile
+docker-compose.yml
+.dockerignore

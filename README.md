@@ -2,11 +2,9 @@
 
 Agentic AI system for clinical data derivation (SDTM to ADaM) with regulatory-grade verification, human-in-the-loop approval, and full audit traceability.
 
-Built as a take-home assignment for the Sanofi AI/ML Lead role.
-
 ## 2-minute demo
 
-**Prereqs:** Python 3.13+, [uv](https://docs.astral.sh/uv/), Node.js 20+.
+**Prereqs:** Python 3.13+ with [uv](https://docs.astral.sh/uv/getting-started/installation/) and Node.js 20+ with [pnpm](https://pnpm.io/installation).
 
 ```bash
 # Clone this repo + AgentLens side-by-side
@@ -15,7 +13,7 @@ git clone https://github.com/matt-grain/AgentLens.git
 # One-time setup
 cd pharma-derive
 uv sync
-(cd frontend && npm install)
+(cd frontend && pnpm install)
 cp .env.example .env
 uv run python scripts/download_data.py   # fetches CDISC Pilot SDTM + ADaM XPT files into data/
 ```
@@ -28,7 +26,7 @@ cd ../AgentLens && uv run agentlens serve --mode mailbox --traces-dir ../pharma-
 # 2. Backend
 uv run uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --reload
 # 3. Frontend
-(cd frontend && npm run dev)
+(cd frontend && pnpm dev)
 # 4. Canned mailbox responder (plays the LLM)
 uv run python scripts/mailbox_cdisc.py
 ```
@@ -41,32 +39,109 @@ In the browser at `http://localhost:3000`:
 
 **~90 seconds end-to-end.** Swap the responder for a live Claude key via `LLM_BASE_URL` + `LLM_API_KEY` to run with real LLM calls.
 
-## Quick Start
+## Quick Start — Docker stack (WSL2 / Linux)
+
+Runs the full stack — nginx reverse proxy + PostgreSQL + AgentLens + backend + frontend — as 5 containers. Verified on Docker CE in WSL2 Ubuntu. For the host-native flow (no Docker), see the 2-minute demo above.
+
+**Prereqs:** Docker Engine 25+ with compose v2, [uv](https://docs.astral.sh/uv/getting-started/installation/) (for the data download step), and [AgentLens](https://github.com/matt-grain/AgentLens) cloned side-by-side at `../AgentLens`.
+
+### 1. Populate the data directory (one-off)
+
+The CDISC Pilot SDTM + ADaM XPT files are mounted read-only into the backend container — they are NOT baked into the image (PHI hygiene). On a fresh clone you must run the download step **before** `docker compose up`, otherwise the mount will be empty. **Run this from WSL** if you're using Docker CE inside WSL:
 
 ```bash
-# Clone and install
-git clone https://github.com/matt-grain/pharma-derive.git
 cd pharma-derive
-uv sync
-cd frontend && npm install && cd ..
-
-# Run tests (318 backend + 14 frontend = 332 total)
-uv run pytest
-(cd frontend && npm test)
-
-# Start the backend API (terminal 1)
-uv run uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --reload
-
-# Start the frontend dev server (terminal 2)
-cd frontend && npm run dev
-
-# Or with Docker (all-in-one)
-docker compose up --build
+uv run python scripts/download_data.py   # populates ./data/{sdtm,adam}/cdiscpilot01/
 ```
 
-- Backend API + docs: `http://localhost:8000/docs`
-- Frontend SPA: `http://localhost:3000`
-- MCP endpoint (for LLM agents): `http://localhost:8000/mcp/mcp`
+### 2. Build the images + start the stack
+
+```bash
+# One-off: build the AgentLens image from the sibling repo (cached thereafter)
+docker build -t agentlens:latest ../AgentLens
+
+# Build pharma-derive backend + frontend images via compose
+docker compose build
+
+# Start all 5 services in the background
+docker compose up -d
+docker compose ps         # verify everything is healthy
+```
+
+### 3. Access the running stack
+
+| URL | What |
+|---|---|
+| `http://localhost:8080/` | React SPA (via nginx → frontend) |
+| `http://localhost:8080/health` | Backend health (via nginx) |
+| `http://localhost:8080/api/v1/specs/` | REST API (via nginx) |
+| `http://localhost:8080/mcp/mcp` | FastMCP transport for LLM agents (via nginx) |
+| `http://localhost:8000/docs` | Backend Swagger UI (direct, bypasses nginx) |
+| `http://localhost:8650/mailbox` | AgentLens mailbox API (direct, for manual LLM replies) |
+
+`nginx` is published on **8080**, not 80, because rootless Docker in WSL2 cannot bind privileged ports.
+
+### 4. Shut down
+
+```bash
+docker compose down         # stop + remove containers, keep the PostgreSQL volume
+docker compose down -v      # also drop the PostgreSQL volume (fresh start next time)
+```
+
+## Debugging & Audit
+
+All the regulatorily-interesting outputs land on the **host filesystem** via named volume mounts, not inside the containers — you can read them directly with any host-side tool, even after a `docker compose down`.
+
+### Where to look
+
+| What | Where | Format | Who writes it |
+|---|---|---|---|
+| **Derived ADaM datasets** (per workflow) | `./output/{workflow_id}_adam.csv`<br>`./output/{workflow_id}_adam.parquet` | CSV + Parquet | `export_adam` builtin step |
+| **Audit trail** (append-only, per workflow) | `./output/{workflow_id}_audit.json` | JSON | `audit/trail.py` at pipeline completion |
+| **SDTM source snapshot** (per workflow) | `./output/{workflow_id}_source.csv` | CSV | `parse_spec` builtin (Phase 18.1) |
+| **AgentLens OTel traces** (per LLM call) | `./traces/*.json` | JSON (OTel spans) | AgentLens proxy |
+| **Backend application logs** (uvicorn + loguru) | `docker compose logs backend` | stdout/stderr | accessed via the Docker log driver |
+| **PostgreSQL data** | named volume `postgres_data` | — | SQLAlchemy async writes |
+
+### Reading an audit trail for a specific workflow
+
+```bash
+jq . output/{workflow_id}_audit.json                                    # full audit trail
+jq '.[] | .action + " " + .variable' output/{workflow_id}_audit.json    # event summary
+```
+
+The audit trail is append-only — every `AuditRecord` has timestamp, agent, action, variable, input hash, output hash, QC result, and human approval context. Matches the 21 CFR Part 11 §11.10(e) shape.
+
+### Following backend logs live
+
+```bash
+docker compose logs -f backend              # live tail
+docker compose logs --since 5m backend      # last 5 minutes
+docker compose logs backend | grep ERROR    # just errors
+```
+
+In production these would be shipped to Splunk / Elasticsearch / Loki via a sidecar or the Docker logging driver. The dev stack relies on `docker compose logs` directly.
+
+### Generating an AgentLens HTML report from a trace
+
+Each LLM call recorded by the AgentLens proxy lands in `./traces/<hash>.json`. Render one into a browsable HTML report — agent trajectory, tool calls, timing breakdown, token usage per step:
+
+```bash
+# Host-native (uv — easiest if AgentLens is cloned locally at ../AgentLens)
+uv run --directory ../AgentLens agentlens evaluate \
+    /absolute/path/to/pharma-derive/traces/<hash>.json \
+    --html \
+    --output /absolute/path/to/pharma-derive/traces/report_<hash>.html
+
+# Or via a throw-away container if you don't want Python on the host
+docker run --rm \
+    -v "$(pwd)/traces:/app/traces:ro" \
+    -v "$(pwd)/traces:/app/out" \
+    agentlens:latest \
+    agentlens evaluate /app/traces/<hash>.json --html --output /app/out/report_<hash>.html
+```
+
+Open the resulting `report_<hash>.html` in a browser.
 
 ## Architecture
 
@@ -120,11 +195,13 @@ Copy `.env.example` to `.env` and adjust as needed.
 ## Development
 
 ```bash
-uv sync --all-extras         # Install dev dependencies
-uv run pytest                # Run tests
-uv run ruff check . --fix    # Lint
-uv run pyright .             # Type check
-uv run lint-imports          # Architectural boundary check
+uv sync --all-extras                                 # Install dev dependencies
+uv run pytest                                        # Run tests
+uv run pytest --cov=src --cov-report=term-missing    # Run tests + coverage summary
+uv run pytest --cov=src --cov-report=html            # Run tests + HTML coverage report (htmlcov/index.html)
+uv run ruff check . --fix                            # Lint
+uv run pyright .                                     # Type check
+uv run lint-imports                                  # Architectural boundary check
 ```
 
 ## Quality

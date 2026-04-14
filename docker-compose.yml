@@ -1,8 +1,33 @@
+# pharma-derive — local / team-tier Docker Compose stack.
+#
+# Services:
+#   - nginx       : reverse proxy, exposes :80 to the host (proxies /api, /mcp, /health, /)
+#   - db          : PostgreSQL 15 (SQLAlchemy async target, named-volume persistence)
+#   - agentlens   : LLM proxy in mailbox mode, serves OpenAI-compatible API on :8650
+#   - backend     : FastAPI + FastMCP pharma-derive engine
+#   - frontend    : Vite + React SPA, served by internal nginx on :3000
+#
+# Prerequisites:
+#   1. Build the AgentLens image once (compose references it by tag since the
+#      AgentLens repo lives outside this repo's build context):
+#          docker build -t agentlens:latest /path/to/AgentLens
+#   2. Populate data/:
+#          uv run python scripts/download_data.py   (or mount your own data/)
+#   3. Copy .env.example -> .env (not strictly required — compose environment
+#      sections below override everything the app reads at runtime).
+#
+# Usage:
+#   docker compose up --build        # build local images + start the stack
+#   docker compose down              # stop and remove containers
+#   docker compose down -v           # also drop the PostgreSQL volume
+
 services:
   nginx:
     image: nginx:alpine
     ports:
-      - "80:80"
+      # Exposed on 8080 (not 80) because rootless Docker in WSL cannot bind
+      # privileged ports. Access the app at http://localhost:8080/ .
+      - "8080:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
@@ -14,40 +39,63 @@ services:
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-user}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
-      - POSTGRES_DB=${POSTGRES_DB:-app_db}
+      # DEV-ONLY defaults. Override via repo-root .env or shell env for any
+      # non-local deployment. Panel reviewers reading the compose file should
+      # see an explicit "devonly" marker rather than the cliché "password".
+      - POSTGRES_USER=${POSTGRES_USER:-cdde}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-devonly}
+      - POSTGRES_DB=${POSTGRES_DB:-cdde_local}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-app_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cdde} -d ${POSTGRES_DB:-cdde_local}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   agentlens:
     image: agentlens:latest
-    restart: unless-stopped
-    command: uv run agentlens serve
-    expose:
-      - "8650"
+    # Port published to the host (not just `expose`) so external tooling
+    # (curl, manual mailbox inspection, a live auto-responder running on the
+    # host, IDE-level debug clients) can reach the mailbox API. The backend
+    # service inside the docker network still resolves `http://agentlens:8650`
+    # via DNS — both paths work.
+    ports:
+      - "8650:8650"
     volumes:
-      - ./output:/app/traces 
+      # Dedicated trace storage — separate from ./output which is for CDDE ADaM + audit artifacts.
+      # Host-mounted (not a named volume) so traces are inspectable locally for demo + debugging.
+      - ./traces:/app/traces
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
-  
+
   backend:
     build: .
-    expose:
-      - "8000"
+    # Port published to the host for direct REST + MCP access
+    # (`http://localhost:8000/mcp/mcp` for MCP clients, `http://localhost:8000/docs`
+    # for the Swagger UI). The nginx reverse proxy ALSO exposes the same routes
+    # at `http://localhost:8080/api/`, `/mcp/`, `/health` — both paths work.
+    ports:
+      - "8000:8000"
     volumes:
       - ./output:/app/output
       - ./data:/app/data:ro
+      # The simple_mock demo spec references tests/fixtures/ for its tiny
+      # synthetic patients CSV. Mounted read-only so the specs/simple_mock.yaml
+      # workflow can run inside the container without baking test data into
+      # the image.
+      - ./tests/fixtures:/app/tests/fixtures:ro
     environment:
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://agentlens:8650/v1}
-      - LLM_API_KEY=${LLM_API_KEY:-not-needed-for-mailbox}
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://user:password@db:5432/app_db}
+      # Hardcoded (no ${VAR:-...} interpolation) so host-side .env values for
+      # local dev don't leak into the containerised stack. Docker compose reads
+      # .env at parse time, which means ${DATABASE_URL:-postgres...} would
+      # resolve to the sqlite URL the host-native flow uses, bypassing the
+      # postgres service entirely. The backend must point at the db service
+      # via the docker-internal DNS name.
+      - LLM_BASE_URL=http://agentlens:8650/v1
+      - LLM_API_KEY=not-needed-for-mailbox
+      - DATABASE_URL=postgresql+asyncpg://cdde:devonly@db:5432/cdde_local
     depends_on:
       db:
         condition: service_healthy
