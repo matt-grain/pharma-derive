@@ -21,9 +21,9 @@ export function WorkflowDetailPage() {
   const workflowId = id ?? ''
 
   const { data: status, isLoading, error } = useWorkflowStatus(workflowId)
-  const { data: dagNodes } = useWorkflowDag(workflowId)
-  const { data: auditRecords } = useWorkflowAudit(workflowId)
   const isTerminal = (TERMINAL_STATUSES as readonly string[]).includes(status?.status ?? '')
+  const { data: dagNodes } = useWorkflowDag(workflowId, isTerminal)
+  const { data: auditRecords } = useWorkflowAudit(workflowId, isTerminal)
   const { data: result } = useWorkflowResult(workflowId, isTerminal)
   const { data: dataPreview, isLoading: isDataLoading } = useWorkflowData(workflowId, isTerminal)
   const approveMutation = useApproveWorkflowWithFeedback(workflowId)

@@ -46,7 +46,7 @@ async def main() -> int:
             if state in {"completed", "failed"}:
                 break
             if state == "review":
-                print(f"  [HITL gate hit — workflow paused at review state]")
+                print("  [HITL gate hit — workflow paused at review state]")
                 # keep polling — external approver (curl or UI) will release
 
         print(f"\n[{time.strftime('%H:%M:%S')}] Fetching final result")
@@ -56,7 +56,7 @@ async def main() -> int:
             if isinstance(final_payload, str):
                 final_payload = json.loads(final_payload)
             print(json.dumps(final_payload, indent=2, default=str)[:2000])
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"  get_workflow_result error: {exc}")
 
         return 0 if last_status == "completed" else 1

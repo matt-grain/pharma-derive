@@ -138,7 +138,7 @@ RESPONSES: dict[tuple[str, str], dict[str, object]] = {
         "variable_name": "RISK_SCORE",
         "python_code": (
             "df.apply(lambda r: ('high' if r['TREATMENT_DURATION'] > 120 else 'medium') "
-            "if r['IS_ELDERLY'] == True else 'low' "  # noqa: E712 — pandas row compare needs ==
+            "if r['IS_ELDERLY'] == True else 'low' "
             "if pd.notna(r['IS_ELDERLY']) and pd.notna(r['TREATMENT_DURATION']) else None, axis=1)"
         ),
         "approach": "Row-wise apply with nested conditionals",
@@ -167,7 +167,7 @@ RESPONSES: dict[tuple[str, str], dict[str, object]] = {
 
 
 def main() -> None:
-    print(f"simple_mock auto-responder ({len(RESPONSES)} canned responses) — idle timeout 30min...")  # noqa: T201
+    print(f"simple_mock auto-responder ({len(RESPONSES)} canned responses) — idle timeout 30min...")
     idle_start: float | None = None
     while True:
         pending = get_pending()
@@ -185,11 +185,11 @@ def main() -> None:
             key = (role, var)
             if key in RESPONSES:
                 respond(rid, RESPONSES[key])
-                print(f"  #{rid}: {role}/{var} -> OK")  # noqa: T201
+                print(f"  #{rid}: {role}/{var} -> OK")
             else:
-                print(f"  #{rid}: {role}/{var} -> UNKNOWN, skipping")  # noqa: T201
+                print(f"  #{rid}: {role}/{var} -> UNKNOWN, skipping")
         time.sleep(2)
-    print("Done — idle timeout reached.")  # noqa: T201
+    print("Done — idle timeout reached.")
 
 
 if __name__ == "__main__":

@@ -94,7 +94,7 @@ async def main() -> int:
             final_payload = final.data if hasattr(final, "data") else json.loads(final.content[0].text)
             if isinstance(final_payload, str):
                 final_payload = json.loads(final_payload)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"  get_workflow_result error: {exc}")
             final_payload = {"error": str(exc)}
 

@@ -95,7 +95,7 @@ export function ApprovalDialog({
 }: ApprovalDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Approve Workflow</DialogTitle>
         </DialogHeader>

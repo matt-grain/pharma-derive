@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
+from loguru import logger
 
 from src.api.schemas import SpecListItem
 
@@ -35,7 +36,8 @@ async def list_specs() -> list[SpecListItem]:
                 )
             )
         except (yaml.YAMLError, KeyError, OSError):
-            continue  # skip malformed specs
+            logger.error(f"Cannot add spec {path}")  # skip malformed specs
+
     return items
 
 

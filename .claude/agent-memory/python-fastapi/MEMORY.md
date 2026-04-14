@@ -7,3 +7,7 @@
 - [project_cdde_phase14_2.md](project_cdde_phase14_2.md) — CDDE Phase 14.2 complete: pipeline interpreter, YAML pipeline, parse_spec builtin, 205 tests pass
 - [project_cdde_phase14_3_backend.md](project_cdde_phase14_3_backend.md) — CDDE Phase 14.3 backend complete: GET /api/v1/pipeline endpoint, pipeline schemas, 234 tests pass
 - [project_cdde_phase14_4.md](project_cdde_phase14_4.md) — CDDE Phase 14.4 complete: express/enterprise pipeline YAMLs, 32 new tests (scenario+integration), 238 tests pass
+- [project_cdde_phase16_2b.md](project_cdde_phase16_2b.md) — CDDE Phase 16.2b complete: approve-with-feedback, reject, override endpoints; workflow_hitl.py extracted; 292 tests pass
+- [project_cdde_phase17_1.md](project_cdde_phase17_1.md) — CDDE Phase 17.1 complete: query_feedback + query_qc_history LTM tools, Bug #5 closed, 309 tests pass
+- [project_cdde_phase17_2.md](project_cdde_phase17_2.md) — CDDE Phase 17.2 complete: per-variable audit events (CODER_PROPOSED/QC_VERDICT/DEBUGGER_RESOLVED), Bug #1 closed, 311 tests pass
+- [project_cdde_phase17_3.md](project_cdde_phase17_3.md) — CDDE Phase 17.3 backend complete: dual-404 /ground_truth + WorkflowRejectedError silent handling, Bugs #2+#3 closed, 315 tests pass

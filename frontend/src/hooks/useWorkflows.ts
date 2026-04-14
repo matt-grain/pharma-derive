@@ -48,19 +48,25 @@ export function useWorkflowResult(id: string, enabled: boolean) {
   })
 }
 
-export function useWorkflowAudit(id: string) {
+export function useWorkflowAudit(id: string, isTerminal = false) {
   return useQuery({
     queryKey: ['workflow', id, 'audit'],
     queryFn: () => api.getWorkflowAudit(id),
     enabled: id.length > 0,
+    // Poll while running so audit events (step_started/completed, HITL sub-events) surface live
+    // without requiring a manual page refresh. Stop once the workflow reaches a terminal state.
+    refetchInterval: isTerminal ? false : 2_000,
   })
 }
 
-export function useWorkflowDag(id: string) {
+export function useWorkflowDag(id: string, isTerminal = false) {
   return useQuery({
     queryKey: ['workflow', id, 'dag'],
     queryFn: () => api.getWorkflowDag(id),
     enabled: id.length > 0,
+    // Poll while running so layer-1+ variables (IS_ELDERLY, RISK_SCORE) appear with their
+    // approved_code by the time the HITL ApprovalDialog opens. Stop once the workflow is terminal.
+    refetchInterval: isTerminal ? false : 2_000,
   })
 }
 

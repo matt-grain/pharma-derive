@@ -23,7 +23,17 @@ async def approve_with_feedback_impl(
     ctx: PipelineContext | None,
     payload: ApprovalRequest | None,
 ) -> None:
-    """Write per-variable feedback rows then set the approval event."""
+    """Write per-variable feedback rows, stash approval details on ctx, then set the approval event.
+
+    The stashed fields (`approval_reason`, `approval_approved_vars`, `approval_rejected_vars`) are
+    read by `HITLGateStepExecutor` after `event.wait()` returns, so the `HUMAN_APPROVED` audit
+    record can carry the full per-variable breakdown instead of just the gate name.
+    """
+    if payload is not None and ctx is not None:
+        ctx.approval_reason = payload.reason or ""
+        ctx.approval_approved_vars = [d.variable for d in payload.variables if d.approved]
+        ctx.approval_rejected_vars = [d.variable for d in payload.variables if not d.approved]
+
     if payload is not None and session is not None and ctx is not None and ctx.spec is not None:
         from src.persistence.feedback_repo import FeedbackRepository
 
