@@ -226,7 +226,7 @@ class WorkflowManager:
             await state_repo.delete(workflow_id)
             await session.commit()
         output_dir = Path(get_settings().output_dir)
-        for suffix in ("_audit.json", "_adam.csv", "_adam.parquet"):
+        for suffix in ("_audit.json", "_adam.csv", "_adam.parquet", "_source.csv"):
             path = output_dir / f"{workflow_id}{suffix}"
             if path.exists():
                 path.unlink()

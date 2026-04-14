@@ -194,6 +194,68 @@ async def test_get_data_preview_completed_workflow_returns_columns_and_rows(
     assert "csv" in derived_formats
 
 
+async def test_get_data_preview_reads_source_snapshot_when_ctx_missing(
+    tmp_path: Path,
+) -> None:
+    """GET /data returns source panel from disk snapshot when no in-memory ctx exists.
+
+    Simulates the post-restart scenario: the workflow is known (in _history) but
+    has no live PipelineContext in _contexts. The disk snapshot must be enough
+    for the Data tab to render the SDTM panel.
+    """
+    # Arrange — write a fake source snapshot + adam file directly to disk
+    workflow_id = "wf-post-restart"
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    source_df = pd.DataFrame(
+        {
+            "USUBJID": ["SUBJ-001", "SUBJ-002", "SUBJ-003"],
+            "AGE": [45, 72, 18],
+            "SEX": ["M", "F", "F"],
+        }
+    )
+    source_df.to_csv(output_dir / f"{workflow_id}_source.csv", index=False)
+
+    adam_df = pd.DataFrame(
+        {
+            "USUBJID": ["SUBJ-001", "SUBJ-002", "SUBJ-003"],
+            "AGEGR1": [">=18 to 64", ">=65", "<18"],
+        }
+    )
+    adam_df.to_csv(output_dir / f"{workflow_id}_adam.csv", index=False)
+
+    # Patch settings so the router reads from tmp_path, and register the workflow
+    # in a FRESH manager's _history (not _contexts) to mimic the post-restart state.
+    with patch("src.api.routers.data.get_settings") as mock_settings:
+        mock_settings.return_value.output_dir = str(output_dir)
+
+        from src.api.app import create_app
+        from src.api.workflow_manager import _HistoricState  # type: ignore[attr-defined]
+
+        app = create_app()
+        manager = WorkflowManager()
+        manager._history[workflow_id] = _HistoricState(  # type: ignore[attr-defined]
+            workflow_id, "completed", '{"derived_variables": [], "errors": []}'
+        )
+        app.state.workflow_manager = manager
+
+        transport = ASGITransport(app=app)  # type: ignore[arg-type]
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # Act
+            response = await ac.get(f"/api/v1/workflows/{workflow_id}/data")
+
+    # Assert — source panel is non-null and carries the snapshot rows
+    assert response.status_code == 200
+    body: dict[str, object] = response.json()
+    assert body["source"] is not None
+    source: dict[str, object] = body["source"]  # type: ignore[assignment]
+    assert source["row_count"] == 3
+    assert source["label"] == "SDTM (Source)"
+    column_names = {c["name"] for c in source["columns"]}  # type: ignore[index]
+    assert column_names == {"USUBJID", "AGE", "SEX"}
+
+
 async def test_download_adam_default_csv_format(client: AsyncClient, tmp_path: Path) -> None:
     """GET /adam without format param returns CSV (backward compatible)."""
     # Arrange — write a temp CSV to the output dir

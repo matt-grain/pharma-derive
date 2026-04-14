@@ -88,7 +88,24 @@ def _load_derived(output_dir: Path, workflow_id: str, limit: int) -> DatasetPrev
 
 
 def _load_source(manager: WorkflowManagerDep, workflow_id: str, limit: int) -> DatasetPreview | None:
-    """Load source SDTM data from the pipeline context spec."""
+    """Load source SDTM data, preferring the disk snapshot over in-memory reconstruction.
+
+    Disk-first so historic workflows (loaded from _history after backend restart)
+    still render the SDTM panel. Falls back to ctx.spec reconstruction only when
+    the snapshot hasn't been written yet (very narrow window).
+    """
+    output_dir = Path(get_settings().output_dir)
+    snapshot_path = output_dir / f"{workflow_id}_source.csv"
+    if snapshot_path.exists():
+        try:
+            df = pd.read_csv(snapshot_path, low_memory=False)
+        except (FileNotFoundError, pd.errors.ParserError, pd.errors.EmptyDataError, ValueError) as exc:
+            from loguru import logger
+
+            logger.warning("SDTM snapshot unreadable, falling back to ctx", path=str(snapshot_path), error=str(exc))
+        else:
+            return _build_dataset_preview(df, "SDTM (Source)", limit)
+
     ctx = manager.get_context(workflow_id)
     spec = ctx.spec if ctx is not None else None
     if spec is None:

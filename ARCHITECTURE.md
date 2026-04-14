@@ -758,6 +758,19 @@ Read by: workflow restart flow in `WorkflowManager`, the checkpoint observabilit
 - **Migrations:** Alembic is the intended tool (not wired in yet — homework scope). Schema changes would land in `alembic/versions/` and be applied by the container at startup.
 - **Retention:** `patterns` and `qc_history` are append-only — no deletion. `workflow_states` is upsert-by-workflow-id (one row per run; resuming overwrites). `feedback` is append-only. For a production deployment with long-running workflows, `workflow_states` rows older than N days could be archived to a cold-storage bucket; this is out of scope for the homework.
 
+### Disk artifacts — `output_dir/` (Phase 18.1)
+
+Each completed workflow writes the following files to `Settings.output_dir` (default `./output/`). All four files use `{workflow_id}` as a prefix:
+
+| File | Written by | Purpose |
+|---|---|---|
+| `{wf_id}_source.csv` | `_builtin_parse_spec` (Phase 18.1) | SDTM input snapshot — enables Data tab to render the SDTM panel after a backend restart |
+| `{wf_id}_adam.csv` | `_builtin_export_adam` | Derived ADaM dataset in CSV format |
+| `{wf_id}_adam.parquet` | `_builtin_export_adam` (optional) | Derived ADaM dataset in Parquet format (only when `formats: [csv, parquet]` in spec) |
+| `{wf_id}_audit.json` | `persist_audit_trail` in `workflow_lifecycle.py` | Full audit trail in JSON format |
+
+All four files are removed by `WorkflowManager.delete_workflow()`.
+
 ## Data Flow — Typical Derivation Lifecycle
 
 ```

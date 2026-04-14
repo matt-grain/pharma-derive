@@ -11,9 +11,11 @@ Bugs/gaps surfaced during the Phase 16 manual test pass (TEST_PLAN_P16.md). All 
 | **#3** | `WorkflowRejectedError` escapes `_run_and_cleanup` Task wrapper | ✅ **CLOSED** | Phase 17.3 — commit `a560845` (dedicated `except WorkflowRejectedError` handler, INFO-level log, returns build_result) |
 | **#4** | `CodeEditorDialog` error banner persists across Cancel + reopen | ✅ **CLOSED** | Phase 17.3 — commit `a560845` (`overrideMutation.reset()` in `CodePanel.tsx` onOpenChange + onSave) |
 | **#5** | LTM read loop is one-dimensional: `query_patterns` ignores `qc_history` and `feedback` tables | ✅ **CLOSED** | Phase 17.1 — commits `38257eb` + `9817248` + `b1fff18` (added `query_feedback` + `query_qc_history` tools, priority-ordered system prompt) |
-| **#6** | Data tab loses SDTM source panel after backend restart | ⏳ **OPEN** — deferred to Phase 18 | Pre-existing, NOT a Phase 17 regression. Fix proposal: persist source data snapshot to disk at parse_spec time. |
+| **#6** | Data tab loses SDTM source panel after backend restart | ✅ **CLOSED** | Phase 18.1 — `_load_source` reads `{wf_id}_source.csv` from disk first; snapshot written at `parse_spec` time |
 
 **Phase 17 delivered 5/5 bugs closed** across 3 sub-phases (17.1/17.2/17.3). 315 backend + 14 frontend tests, all 18 pre-push hooks green on every push. The full /plan-release → /plan-validate → /implement-phase → /check → commit workflow was used for the first time — /plan-validate caught 9 critical factual errors in the initial plan before any subagent dispatched.
+
+**Phase 18.1 delivered 1/1 bug closed.** 318 backend + 14 frontend tests, all pre-push hooks green.
 
 ---
 

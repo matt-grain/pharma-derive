@@ -111,6 +111,48 @@ async def test_builtin_parse_spec_missing_spec_path_key_raises_value_error() -> 
         await BUILTIN_REGISTRY["parse_spec"](step, ctx)
 
 
+async def test_builtin_parse_spec_writes_source_snapshot_to_output_dir(
+    sample_spec_path: Path,
+    tmp_path: Path,
+) -> None:
+    """parse_spec writes {workflow_id}_source.csv to output_dir with the loaded source data."""
+    # Arrange
+    wf_id = "wf-snapshot-001"
+    ctx = _make_ctx(workflow_id=wf_id, output_dir=tmp_path / "output")
+    ctx.set_output("_init", "spec_path", str(sample_spec_path))
+    step = _minimal_step("parse_spec")
+
+    # Act
+    await BUILTIN_REGISTRY["parse_spec"](step, ctx)
+
+    # Assert — snapshot file exists with the same rows as derived_df
+    snapshot_path = tmp_path / "output" / f"{wf_id}_source.csv"
+    assert snapshot_path.exists(), f"Expected SDTM snapshot at {snapshot_path}"
+    assert ctx.derived_df is not None  # type guard
+    snapshot_df = pd.read_csv(snapshot_path)
+    assert len(snapshot_df) == len(ctx.derived_df)
+    assert list(snapshot_df.columns) == list(ctx.derived_df.columns)
+
+
+async def test_builtin_parse_spec_skips_snapshot_when_output_dir_is_none(
+    sample_spec_path: Path,
+    tmp_path: Path,
+) -> None:
+    """parse_spec does not crash and writes no file when output_dir is None."""
+    # Arrange
+    ctx = _make_ctx(output_dir=None)  # output_dir unset
+    ctx.set_output("_init", "spec_path", str(sample_spec_path))
+    step = _minimal_step("parse_spec")
+
+    # Act — must not raise
+    await BUILTIN_REGISTRY["parse_spec"](step, ctx)
+
+    # Assert — ctx is still populated normally, no stray CSVs in tmp_path
+    assert ctx.spec is not None
+    assert ctx.derived_df is not None
+    assert list(tmp_path.glob("*_source.csv")) == []
+
+
 # ---------------------------------------------------------------------------
 # build_dag builtin
 # ---------------------------------------------------------------------------

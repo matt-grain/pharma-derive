@@ -19,7 +19,9 @@ if TYPE_CHECKING:
 
 
 async def _builtin_parse_spec(step: StepDefinition, ctx: PipelineContext) -> None:
-    """Parse spec, load source data, generate synthetic CSV — mirrors orchestrator._step_spec_review."""
+    """Parse spec, load source data, write SDTM snapshot, generate synthetic CSV."""
+    from loguru import logger
+
     from src.domain.source_loader import get_column_domain_map, load_source_data
     from src.domain.spec_parser import parse_spec
     from src.domain.synthetic import generate_synthetic
@@ -30,6 +32,11 @@ async def _builtin_parse_spec(step: StepDefinition, ctx: PipelineContext) -> Non
         raise ValueError(msg)
     ctx.spec = parse_spec(spec_path)
     source_df = load_source_data(ctx.spec)
+    if ctx.output_dir is not None:
+        ctx.output_dir.mkdir(parents=True, exist_ok=True)
+        snapshot_path = ctx.output_dir / f"{ctx.workflow_id}_source.csv"
+        source_df.to_csv(snapshot_path, index=False)
+        logger.info("Wrote SDTM snapshot", path=str(snapshot_path), rows=len(source_df))
     ctx.derived_df = source_df.copy()
     ctx.synthetic_csv = generate_synthetic(source_df, rows=ctx.spec.synthetic.rows).to_csv(index=False)
     ctx.source_column_domains = get_column_domain_map(ctx.spec)
