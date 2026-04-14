@@ -17,9 +17,22 @@
 
 #### `src/api/routers/workflows.py` (MODIFY — Bug #2)
 **Change:** Distinguish two distinct 404 states for the `/ground_truth` endpoint: "step hasn't run yet" vs "spec has no ground_truth_path declared".
+
+**IMPORTANT — verified state of `src/api/routers/workflows.py:136-150` before this fix:**
+- Endpoint at line 136: `@router.get("/{workflow_id}/ground_truth", response_model=GroundTruthReportResponse, status_code=200)`
+- Function `get_ground_truth(workflow_id, manager: WorkflowManagerDep) -> GroundTruthReportResponse` at line 137-140
+- Currently calls `ctx = manager.get_context(workflow_id)` at line 142 — does NOT call `manager.get_interpreter(workflow_id)`
+- Single 404 at line 146-149 with detail `"Ground truth check has not been run for this workflow"`
+
 **Exact change:**
-1. Find the function that handles `GET /workflows/{workflow_id}/ground_truth` (search for `ground_truth` or `def get_ground_truth`)
-2. Replace the current single-message 404 with the two-state logic:
+1. Update `get_ground_truth` to ALSO fetch the interpreter (needed for `completed_steps` access):
+   ```python
+   ctx = manager.get_context(workflow_id)
+   interpreter = manager.get_interpreter(workflow_id)
+   if ctx is None or interpreter is None:
+       raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
+   ```
+2. Replace the current single-message 404 (lines 145-149) with the two-state logic:
    ```python
    if ctx.ground_truth_report is None:
        # Distinguish "step hasn't run yet" from "spec has no ground_truth_path"
@@ -34,18 +47,24 @@
            detail="Ground truth check has not yet run for this workflow",
        )
    ```
-3. **Verify the FSM exposes a way to query completed steps.** The `interpreter.completed_steps` accessor MAY NOT exist — check `src/engine/pipeline_interpreter.py`. If it doesn't:
-   - **Option 1:** add a `completed_steps: list[StepDefinition]` property on `PipelineInterpreter` that exposes the internal completed-steps list
-   - **Option 2:** check the audit trail for a `STEP_COMPLETED` event with `details.step == "ground_truth_check"` — but this requires an audit_trail iteration which is more expensive
-   - **Choose Option 1** — cleaner, more direct, and the property is useful for other callers
-4. If you add `completed_steps` to `PipelineInterpreter`, also update `src/engine/pipeline_interpreter.py` and add a unit test in `tests/unit/test_pipeline_interpreter.py` asserting the property reflects the run state correctly
+3. **`PipelineInterpreter.completed_steps` does NOT exist — verified.** Reading `src/engine/pipeline_interpreter.py`, only `current_step` (line 41-44) is exposed. There is NO internal `_completed_steps` list either. **You MUST add the property** as part of this fix:
+   - In `PipelineInterpreter.__init__` (around line 29-39), add a new instance attribute: `self._completed_steps: list[StepDefinition] = []`
+   - Inside `run()` (around line 50-80), after each successful `await self._execute_step(step)` call (line 75), append to the list: `self._completed_steps.append(step)`
+   - Add a public property below `current_step`:
+     ```python
+     @property
+     def completed_steps(self) -> list[StepDefinition]:
+         """Steps that have completed successfully so far in this run."""
+         return list(self._completed_steps)
+     ```
+4. Add a unit test in `tests/unit/test_pipeline_interpreter.py` asserting the property reflects the run state correctly: `test_completed_steps_lists_steps_in_completion_order` (build a 3-step pipeline, run it, assert `interpreter.completed_steps == [step1, step2, step3]`)
 
 **Constraints:**
 - HTTPException detail strings should be the EXACT strings shown above (the test plan asserts them via Test 1 §5 negative path)
 - Don't change the response_model or status_code of the endpoint
 - Add new test cases (see test specs below)
 
-#### `tests/integration/test_workflows_router.py` or `tests/integration/test_ground_truth_endpoint.py` (MODIFY or CREATE)
+#### `tests/integration/test_ground_truth_runtime.py` (MODIFY — file already exists, confirmed)
 **Tests to add (at least 2 new):**
 
 1. **`test_ground_truth_endpoint_returns_404_with_premature_message_when_step_not_run`**
@@ -134,32 +153,48 @@
 
 ### Files to modify — 2 modified
 
-#### `frontend/src/pages/WorkflowDetailPage.tsx` (MODIFY — Bug #4)
+#### `frontend/src/components/CodePanel.tsx` (MODIFY — Bug #4)
 **Change:** Clear the override-error state in the parent's `onOpenChange(false)` handler so the error banner doesn't persist across dialog close + reopen.
+
+**IMPORTANT — file location correction:** `<CodeEditorDialog>` is mounted in `frontend/src/components/CodePanel.tsx:77`, NOT in `frontend/src/pages/WorkflowDetailPage.tsx`. Verified via grep: `WorkflowDetailPage.tsx` has zero references to `CodeEditorDialog`. The override mutation hook is `useOverrideVariable` from `@/hooks/useWorkflows` (imported at `CodePanel.tsx:6`).
+
+**Verified state of `frontend/src/components/CodePanel.tsx:77-79` before this fix:**
+```tsx
+<CodeEditorDialog
+  open={editingVariable === node.variable}
+  onOpenChange={(open) => { if (!open) setEditingVariable(null) }}
+```
+The dialog is conditionally open via the `editingVariable === node.variable` predicate. The `onOpenChange` already clears `editingVariable` on close. The bug is that the `error` prop passed into `<CodeEditorDialog>` (sourced from `useOverrideVariable` mutation state — likely `mutation.error?.message`) is NOT cleared on close.
+
 **Exact change:**
-1. Find where `<CodeEditorDialog ... />` is rendered (search for `CodeEditorDialog` in the file)
-2. Find the state declaration that holds the error message (likely something like `const [overrideError, setOverrideError] = useState<string | null>(null)` — could be named differently, locate it by following the `error` prop passed into `<CodeEditorDialog>`)
-3. The current `onOpenChange` prop is probably `onOpenChange={setEditorOpen}` or similar — change it to a function that clears the error on close:
+1. **Locate the source of the `error` prop** passed to `<CodeEditorDialog>` (currently somewhere around line 77-85 of `CodePanel.tsx`). It is likely either:
+   - A direct read from the mutation: `error={mutation.error?.message ?? null}`
+   - A local state variable: `const [error, setError] = useState<string | null>(null)` set in the mutation's `onError` callback
+2. **If it's a local state variable**, update the existing `onOpenChange` handler to ALSO clear it:
    ```tsx
-   onOpenChange={(open: boolean) => {
-     setEditorOpen(open)
+   onOpenChange={(open) => {
      if (!open) {
-       setOverrideError(null)  // clear stale error from any previous failed submission
+       setEditingVariable(null)
+       setError(null)  // NEW — clear stale error from previous failed submission
      }
    }}
    ```
-4. **Also clear the error when starting a new mutation** (so the banner from a prior failure doesn't show until the new failure completes). Find the `onSave` callback passed to `<CodeEditorDialog>` and at the start of it:
+3. **If it's a direct read from `mutation.error`**, the fix is to call `mutation.reset()` in the close handler instead (TanStack Query's mutation reset clears the error state):
    ```tsx
-   onSave={(newCode, reason) => {
-     setOverrideError(null)  // clear any prior error before submitting
-     overrideMutation.mutate({ workflowId, variable: editingVariable, newCode, reason })
+   onOpenChange={(open) => {
+     if (!open) {
+       setEditingVariable(null)
+       mutation.reset()  // NEW — TanStack Query reset clears error AND data
+     }
    }}
    ```
+4. **Verify by grepping the file** — find the exact source of the `error={...}` prop and apply whichever pattern matches.
 
 **Constraints:**
 - Don't refactor the dialog component itself — the fix is purely in the parent's state management
 - Don't introduce a `useEffect` for this — the imperative cleanup in the close handler is the cleanest approach (and the project's ESLint config bans `react-hooks/set-state-in-effect`)
 - Preserve the existing component patterns (no new abstractions for a 2-line fix)
+- Use `mutation.reset()` if the project follows TanStack Query idioms — it's preferred over manual local state for mutation errors
 
 #### `frontend/src/components/CodeEditorDialog.test.tsx` (MODIFY)
 **Test to add:**
@@ -179,16 +214,18 @@
 ## Implementation order (within Phase 17.3)
 
 **Backend first** (one `python-fastapi` dispatch):
-1. Bug #2 — Update `src/api/routers/workflows.py` for the dual 404 logic + add `completed_steps` property to `PipelineInterpreter` if missing
-2. Bug #2 — Add 2 new tests in `tests/integration/test_workflows_router.py` (or wherever the ground_truth endpoint test lives)
-3. Bug #3 — Update `src/api/workflow_manager.py::_run_and_cleanup` with the dedicated `except WorkflowRejectedError` block
-4. Bug #3 — Add 1 new test in `tests/unit/test_workflow_manager.py` for the no-warning assertion
-5. Run the backend tooling gate (pyright + ruff + lint-imports + pytest)
+1. Bug #2 — Add `completed_steps` property to `PipelineInterpreter` in `src/engine/pipeline_interpreter.py` (verified does NOT exist today). Append to `_completed_steps` list inside `run()` after each successful `_execute_step`.
+2. Bug #2 — Add unit test `test_completed_steps_lists_steps_in_completion_order` in `tests/unit/test_pipeline_interpreter.py`
+3. Bug #2 — Update `src/api/routers/workflows.py:get_ground_truth` (lines 137-150) to ALSO call `manager.get_interpreter(workflow_id)` and emit dual 404 messages
+4. Bug #2 — Add 2 new tests in `tests/integration/test_ground_truth_runtime.py` (file already exists — verified)
+5. Bug #3 — Update `src/api/workflow_manager.py::_run_and_cleanup` (lines 81-115) with the dedicated `except WorkflowRejectedError` block BEFORE the existing `except Exception`
+6. Bug #3 — Add 1 new test in `tests/unit/test_workflow_manager.py` for the no-warning assertion
+7. Run the backend tooling gate (pyright + ruff + lint-imports + pytest)
 
 **Frontend second** (one `vite-react` dispatch):
-6. Bug #4 — Update `frontend/src/pages/WorkflowDetailPage.tsx` (or wherever `<CodeEditorDialog>` is mounted) to clear error on close and on new mutation
-7. Bug #4 — Add 1 new test in `frontend/src/components/CodeEditorDialog.test.tsx`
-8. Run the frontend tooling gate (`npm run typecheck && npm run lint && npm run test`)
+8. Bug #4 — Update `frontend/src/components/CodePanel.tsx` (the file that mounts `<CodeEditorDialog>` at line 77 — verified). Use `mutation.reset()` from `useOverrideVariable` if the error sources from a TanStack Query mutation, or `setError(null)` if it's a local state variable — grep the file to determine which.
+9. Bug #4 — Add 1 new test in `frontend/src/components/CodeEditorDialog.test.tsx`
+10. Run the frontend tooling gate (`npx tsc -b --noEmit && npm run lint && npm run test`)
 
 ---
 
@@ -207,10 +244,11 @@ uv run pytest tests/ -q
 **Frontend** (after sub-bundle B):
 ```bash
 cd C:\Projects\Interviews\jobs\Sanofi-AI-ML-Lead\homework\frontend
-npm run typecheck
+npx tsc -b --noEmit
 npm run lint
 npm run test
 ```
+**Note:** The frontend `package.json` does NOT define a `typecheck` script — verified. Use `npx tsc -b --noEmit` directly. The `npm run build` script also runs `tsc -b` as part of the build, but is slower because it also runs the full Vite build.
 
 ---
 

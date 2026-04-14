@@ -52,7 +52,7 @@ uv run pytest tests/ -q
 If any phase touches frontend files (only Phase 17.3):
 ```bash
 cd C:\Projects\Interviews\jobs\Sanofi-AI-ML-Lead\homework\frontend
-npm run typecheck
+npx tsc -b --noEmit   # frontend has NO 'typecheck' script — use this instead
 npm run lint
 npm run test
 ```

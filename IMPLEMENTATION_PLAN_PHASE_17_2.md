@@ -7,90 +7,139 @@
 **Agent:** `python-fastapi`
 **Depends on:** Nothing (independent of 17.1 and 17.3)
 **Estimated effort:** 30–60 min
-**Reference (read first):** BUGS.md §#1, `src/engine/derivation_runner.py` (the function being modified), `src/engine/step_executors.py::ParallelMapStepExecutor` (the caller — lines 197-256), `src/domain/models.py::AuditAction` (where new enum values go), `src/audit/trail.py` (the AuditTrail.record signature)
+**Reference (read first):** BUGS.md §#1, `src/engine/derivation_runner.py` (the function being modified), `src/engine/debug_runner.py` (where the debugger event is emitted from), `src/engine/step_executors.py::ParallelMapStepExecutor` (the caller — lines 197-256), `src/domain/enums.py::AuditAction` at line 78 + `src/domain/enums.py::AgentName` at line 94 (where new enum values go — NOT in `models.py` which only re-exports them), `src/audit/trail.py` (the AuditTrail.record signature)
 
 ---
 
-## Files to modify — 4 modified
+## Files to modify — 5 modified
 
-### `src/domain/models.py` (MODIFY)
+### `src/domain/enums.py` (MODIFY)
 **Change:** Add 3 new `AuditAction` enum values for per-variable agent provenance.
+**IMPORTANT — file location correction:** `AuditAction` and `AgentName` are defined in **`src/domain/enums.py`** (lines 78 and 94 respectively), NOT in `src/domain/models.py`. `models.py` only re-exports them via `from src.domain.enums import (AgentName, AuditAction, ...)` at lines 9-19. **The actual class definitions to modify are in `enums.py`.**
 **Exact change:**
-1. Find `class AuditAction(StrEnum)` (or `class AuditAction(str, Enum)` — match the existing style)
-2. Add three new members **after** the existing per-variable members but before any workflow-level ones:
+1. Open `src/domain/enums.py`
+2. Find `class AuditAction(StrEnum):` at line 78. The existing members are: `SPEC_PARSED, DERIVATION_COMPLETE, AUDIT_COMPLETE, STATE_TRANSITION, HUMAN_APPROVED, HUMAN_OVERRIDE, HUMAN_REJECTED, STEP_STARTED, STEP_COMPLETED, HITL_GATE_WAITING, WORKFLOW_FAILED`
+3. Add three new members at the END of the enum (preserve existing order):
    ```python
    CODER_PROPOSED = "coder_proposed"
    QC_VERDICT = "qc_verdict"
    DEBUGGER_RESOLVED = "debugger_resolved"
    ```
+**No re-export change needed** — `src/domain/models.py:9-19` already imports `AuditAction` from `enums`, so existing callers continue to work via the re-export. New callers can import from either location.
 **Constraints:**
 - StrEnum value strings MUST be lowercase snake_case (matches existing convention)
-- Don't reorder existing members (changing position of enum members is risk-free for StrEnum but still a bad habit)
-- If there's a `__all__` or re-export list, add the 3 new names
+- Don't reorder existing members (changing position of StrEnum members is risk-free for value-based comparison but still a bad habit)
 
 ---
 
-### `src/engine/derivation_runner.py` (MODIFY — primary change site)
-**Change:** Inside `run_variable` (or wherever the coder/QC/debugger sub-agents are invoked), emit a `ctx.audit_trail.record(...)` call AFTER each sub-agent produces its output, populating the `variable` column with the variable name.
-**Exact changes (per sub-agent invocation):**
+### `src/engine/derivation_runner.py` (MODIFY — primary change site for coder + QC events)
+**Change:** Inside `run_variable`, emit `ctx.audit_trail.record(...)` calls for the **coder** and **QC** events (not debugger — see `debug_runner.py` modify spec below for that one). The coder + QC results are returned from `_run_coder_and_qc(...)` at line 50-52, and the QC verdict is computed at line 59 by `verify_derivation`. Both events fire from inside `run_variable`.
 
-1. **After the coder agent returns its result**, add:
+**IMPORTANT — verified state of `src/engine/derivation_runner.py:36-65` before this fix:**
+- `run_variable` signature accepts: `variable, dag, derived_df, synthetic_csv, llm_base_url, coder_agent_name, qc_agent_name, debugger_agent_name, pattern_repo` (line 36-46) — does NOT accept `audit_trail`
+- Coder + QC results returned from `_run_coder_and_qc` helper (line 50-52). On line 50: `coder, qc_code = await _run_coder_and_qc(...)`
+- QC verdict computed at line 59: `vr = verify_derivation(variable, coder.python_code, qc_code.python_code, derived_df, available)`
+- On QC match path: `_approve_match(...)` is called (line 61)
+- On QC mismatch path: `handle_mismatch(...)` is called (line 65) — debugger runs inside this helper, in `src/engine/debug_runner.py`
+
+**Exact changes:**
+
+1. **Add `audit_trail: AuditTrail` parameter** to `run_variable` (around line 36-46). Place it after `pattern_repo: PatternRepository | None = None` and the other 2 new repo params (`feedback_repo`, `qc_history_repo`) from Phase 17.1. Default it to a sentinel `None` ONLY for backwards compat with any legacy direct-callers — the production path will always pass it. If pyright strict objects, use a `Required` parameter without default.
+
+2. **After line 50** (`coder, qc_code = await _run_coder_and_qc(...)`), add the CODER_PROPOSED audit event:
    ```python
-   ctx.audit_trail.record(
-       variable=variable,
-       action=AuditAction.CODER_PROPOSED,
-       agent=AgentName.CODER,
-       details={
-           "approach": coder_result.approach,
-           "code_preview": coder_result.python_code[:200],
-       },
-   )
+   if audit_trail is not None:
+       audit_trail.record(
+           variable=variable,
+           action=AuditAction.CODER_PROPOSED,
+           agent=AgentName.CODER,
+           details={
+               "approach": coder.approach,
+               "code_preview": coder.python_code[:200],
+           },
+       )
    ```
 
-2. **After the QC agent returns its result**, add:
+3. **After line 50 BUT BEFORE the express-mode `if qc_code is None:` branch on line 54**, add the CODER event but ONLY emit the QC event if `qc_code is not None`. The cleanest pattern: emit CODER, then check `if qc_code is not None` and emit QC. Looking at existing code, the order is: get coder+qc, check express mode (if qc_code is None return), then verify. The QC event should fire AFTER `vr = verify_derivation(...)` on line 59 so we have the verdict.
+
+4. **After line 59** (`vr = verify_derivation(...)`), add the QC_VERDICT audit event:
    ```python
-   ctx.audit_trail.record(
-       variable=variable,
-       action=AuditAction.QC_VERDICT,
-       agent=AgentName.QC,
-       details={
-           "verdict": qc_verdict.value,  # "match" or "mismatch"
-           "approach": qc_result.approach,
-           "code_preview": qc_result.python_code[:200],
-       },
-   )
+   if audit_trail is not None:
+       audit_trail.record(
+           variable=variable,
+           action=AuditAction.QC_VERDICT,
+           agent=AgentName.QC_PROGRAMMER,
+           details={
+               "verdict": vr.verdict.value,  # "match" or "mismatch"
+               "approach": qc_code.approach,
+               "code_preview": qc_code.python_code[:200],
+           },
+       )
    ```
 
-3. **After the debugger resolves a mismatch** (only on the mismatch branch), add:
+5. **Update the call to `handle_mismatch` on line 65** to pass `audit_trail` through:
    ```python
-   ctx.audit_trail.record(
-       variable=variable,
-       action=AuditAction.DEBUGGER_RESOLVED,
-       agent=AgentName.DEBUGGER,
-       details={
-           "root_cause": debugger_result.root_cause,
-           "chose": debugger_result.correct_implementation,  # "coder" | "qc" | "neither"
-           "confidence": debugger_result.confidence,
-       },
-   )
+   await handle_mismatch(variable, dag, derived_df, coder, qc_code, vr, llm_base_url, debugger_name, audit_trail=audit_trail)
    ```
+   (Adding `audit_trail` as a kwarg.)
 
-**IMPORTANT — caller signature change:** `run_variable` currently does NOT accept `audit_trail` as a parameter (verify this by reading the current signature — it likely receives only `dag`, `derived_df`, etc.). To call `ctx.audit_trail.record(...)` from inside, the function needs access to either the trail OR the full `ctx`. Two options:
-- **Option A (preferred):** add `audit_trail: AuditTrail` parameter to `run_variable`, pass it from the ParallelMapStepExecutor call site (`audit_trail=ctx.audit_trail`)
-- **Option B (less invasive):** add an optional `audit_trail: AuditTrail | None = None` parameter and gate each `record(...)` call on `if audit_trail is not None`
-
-Use **Option A** — strict typing, no Optional, callers always pass the trail.
-
-**Imports to add:**
+**Imports to add at the top of `src/engine/derivation_runner.py`:**
 ```python
-from src.domain.models import AuditAction, AgentName  # if not already imported
+from src.domain.enums import AgentName, AuditAction  # NEW — for the audit events
+```
+And under `TYPE_CHECKING`:
+```python
+from src.audit.trail import AuditTrail
 ```
 
 **Constraints:**
 - Code previews truncated to 200 chars (matches the existing `slice(0, 80)` cap in `VariableApprovalList.tsx` — 200 gives audit a bit more context than UI snippets, since auditors may want to see the full expression)
-- All 3 audit events use the variable name (NOT the empty string) — that's the whole point of the bug fix
-- Function MUST stay under 30 lines per the project rule. If `run_variable` grows past 30 lines after these changes, extract a helper `_record_variable_event(ctx, variable, action, agent, details)`
+- All audit events use the variable name (NOT the empty string) — that's the whole point of the bug fix
+- Function MUST stay under 30 lines per the project rule. **`run_variable` is currently at ~32 lines** — adding 2 audit blocks will push it over. **Extract a helper** `_record_coder_qc_audit(audit_trail, variable, coder, qc_code, vr)` that emits both events, and call it from `run_variable` to keep the function body lean.
 - No `print()` debugging — use loguru `logger.debug` if needed
+
+---
+
+### `src/engine/debug_runner.py` (MODIFY — DEBUGGER_RESOLVED event lives here)
+**Change:** Emit the `DEBUGGER_RESOLVED` audit event from inside `handle_mismatch` (the function that owns the debugger invocation). The debugger result is `analysis: DebugAnalysis`, which has fields `root_cause: str`, `correct_implementation: CorrectImplementation` (an enum with values `CODER | QC | NEITHER`), and `suggested_fix: str | None`.
+
+**IMPORTANT — verified state of `src/engine/debug_runner.py` before this fix:**
+- `handle_mismatch` signature at line 158-167: takes `variable, dag, derived_df, coder, qc_code, vr, llm_base_url, debugger_agent_name`. Does NOT take `audit_trail`.
+- `analysis = await _debug_variable(ctx, dag, derived_df, vr)` at line 176 — this is where the debugger result becomes available
+- `analysis.correct_implementation` is a `CorrectImplementation` enum (verify members in `src/domain/enums.py`)
+
+**Exact changes:**
+
+1. **Add `audit_trail: AuditTrail | None = None`** as the last keyword parameter of `handle_mismatch`. Default to `None` so existing tests that call it directly without an audit trail keep working.
+
+2. **After line 176** (`analysis = await _debug_variable(ctx, dag, derived_df, vr)`), add the DEBUGGER_RESOLVED audit event:
+   ```python
+   if audit_trail is not None:
+       audit_trail.record(
+           variable=variable,
+           action=AuditAction.DEBUGGER_RESOLVED,
+           agent=AgentName.DEBUGGER,
+           details={
+               "root_cause": analysis.root_cause,
+               "chose": analysis.correct_implementation.value,  # CorrectImplementation.value: "coder" | "qc" | "neither"
+               "suggested_fix_present": analysis.suggested_fix is not None and bool(analysis.suggested_fix.strip()),
+           },
+       )
+   ```
+
+**Imports to add at the top of `src/engine/debug_runner.py`:**
+```python
+from src.domain.enums import AgentName, AuditAction  # NEW
+```
+And under `TYPE_CHECKING`:
+```python
+from src.audit.trail import AuditTrail
+```
+
+**Constraints:**
+- The event MUST fire AFTER the debugger returns its analysis, regardless of whether the fix succeeds (the audit trail captures the debugger's reasoning, not whether the fix worked)
+- Use `analysis.correct_implementation.value` (not `.name`) — `CorrectImplementation` is a StrEnum, the `.value` is the lowercase string
+- Function MUST stay under 30 lines per the project rule. `handle_mismatch` is currently ~25 lines; adding this block keeps it under 30.
 
 ---
 
@@ -103,7 +152,7 @@ from src.domain.models import AuditAction, AgentName  # if not already imported
 
 ---
 
-### `tests/unit/test_derivation_runner.py` (MODIFY — or CREATE if doesn't exist)
+### `tests/unit/test_derivation_runner.py` (MODIFY — file already exists, confirmed)
 **Change:** Add 2 new test cases that verify per-variable audit events fire correctly.
 **Tests to add:**
 
@@ -141,11 +190,13 @@ from src.domain.models import AuditAction, AgentName  # if not already imported
 
 ## Implementation order (within Phase 17.2)
 
-1. Add 3 new `AuditAction` enum values in `src/domain/models.py`
-2. Update `run_variable` signature in `src/engine/derivation_runner.py` to accept `audit_trail`
-3. Add the 3 `record(...)` calls inside `run_variable` (coder, QC, optionally debugger)
-4. Update `ParallelMapStepExecutor.execute` to pass `audit_trail=ctx.audit_trail` into `run_variable`
-5. Add the 2 new unit tests in `tests/unit/test_derivation_runner.py`
+1. Add 3 new `AuditAction` enum values in **`src/domain/enums.py`** (NOT `models.py` — verified location: `enums.py:78`)
+2. Update `run_variable` signature in `src/engine/derivation_runner.py` to accept `audit_trail: AuditTrail | None = None`
+3. Add the 2 audit `record(...)` calls inside `run_variable` (CODER_PROPOSED + QC_VERDICT). Extract a helper to keep `run_variable` under 30 lines.
+4. Add `audit_trail` parameter to `handle_mismatch` in `src/engine/debug_runner.py` and emit the DEBUGGER_RESOLVED event after `_debug_variable` returns
+5. Update `run_variable`'s call to `handle_mismatch` to pass `audit_trail` through
+6. Update `ParallelMapStepExecutor.execute` in `src/engine/step_executors.py` to pass `audit_trail=ctx.audit_trail` into `run_variable`
+7. Add the 2 new unit tests in `tests/unit/test_derivation_runner.py` (both happy-path tests verify `audit_trail.records` after the run)
 
 ---
 
@@ -173,7 +224,7 @@ Special attention:
 - ✅ `run_variable` emits exactly 2 audit events on QC-match path (coder + qc)
 - ✅ `run_variable` emits exactly 3 audit events on QC-mismatch path (coder + qc + debugger)
 - ✅ Every new event has `variable=<actual_name>` populated (NOT empty string)
-- ✅ Every new event has the correct `agent` value (`AgentName.CODER`, `AgentName.QC`, `AgentName.DEBUGGER`)
+- ✅ Every new event has the correct `agent` value (`AgentName.CODER`, `AgentName.QC_PROGRAMMER`, `AgentName.DEBUGGER`)
 - ✅ `ParallelMapStepExecutor` passes `audit_trail=ctx.audit_trail` into `run_variable`
 - ✅ 2+ new unit tests in `tests/unit/test_derivation_runner.py` (one per audit path)
 - ✅ Total backend test count increases by 2

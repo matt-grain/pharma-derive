@@ -114,7 +114,7 @@
 
 ---
 
-## Files to modify — 6 modified
+## Files to modify — 7 modified
 
 ### `src/agents/deps.py` (MODIFY)
 **Change:** Add 2 new fields to `CoderDeps` dataclass: `feedback_repo` and `qc_history_repo`, both `None` by default and both typed under `TYPE_CHECKING`.
@@ -165,44 +165,49 @@ async def query_by_variable(self, variable: str, limit: int = 5) -> list[QCHisto
 ---
 
 ### `src/factory.py` (MODIFY)
-**Change:** Wire `FeedbackRepository` and `QCHistoryRepository` into the orchestrator construction so they get injected into `CoderDeps` alongside the existing `PatternRepository`.
+**Change:** Wire `FeedbackRepository` into `create_pipeline_orchestrator`. **`QCHistoryRepository` is already wired** (see `src/factory.py:16` for the import and `src/factory.py:52` for the constructor injection — add `feedback_repo` alongside it).
+**IMPORTANT — verified state of `src/factory.py` before this fix:**
+- Line 14-16: imports `PatternRepository` AND `QCHistoryRepository` from `src.persistence`
+- Line 51-52: `PipelineContext(... pattern_repo=PatternRepository(session), qc_history_repo=QCHistoryRepository(session))`
+- **Conclusion: only `FeedbackRepository` is missing.**
 **Exact change:**
-1. Find the function `create_pipeline_orchestrator` (or similar — it's the function that builds `PipelineContext` and instantiates the orchestrator)
-2. After the line that creates `PatternRepository(session)`, add:
-   ```python
-   feedback_repo = FeedbackRepository(session)
-   qc_history_repo = QCHistoryRepository(session)
-   ```
-3. Find where `PatternRepository` is assigned to `ctx.pattern_repo` (or `CoderDeps.pattern_repo` — whichever site exists) and add the two new repos to the same site:
-   ```python
-   ctx.feedback_repo = feedback_repo
-   ctx.qc_history_repo = qc_history_repo
-   ```
-4. Add the imports at the top of factory.py:
+1. Add the missing import at the top of `src/factory.py` (after the existing `from src.persistence.qc_history_repo import QCHistoryRepository` line):
    ```python
    from src.persistence.feedback_repo import FeedbackRepository
-   from src.persistence.qc_history_repo import QCHistoryRepository
    ```
-**Constraints:** Construction MUST happen in `factory.py` (outside `src/engine/` and `src/agents/` per the `check_repo_direct_instantiation` pre-push hook). DO NOT import these repos from inside `src/engine/` or `src/agents/`. Pass the repo instances down via DI, never as singletons.
+2. Update the `PipelineContext(...)` constructor call (currently at lines 46-53) to add `feedback_repo=FeedbackRepository(session)`:
+   ```python
+   ctx = PipelineContext(
+       workflow_id=wf_id,
+       audit_trail=AuditTrail(wf_id),
+       llm_base_url=llm_base_url or settings.llm_base_url,
+       output_dir=output_dir,
+       pattern_repo=PatternRepository(session),
+       qc_history_repo=QCHistoryRepository(session),
+       feedback_repo=FeedbackRepository(session),  # NEW — Phase 17.1 Bug #5
+   )
+   ```
+**Constraints:** Construction MUST happen in `factory.py` (outside `src/engine/` and `src/agents/` per the `check_repo_direct_instantiation` pre-push hook — `factory.py` is in `src/` root, which is allowed). DO NOT import this repo from inside `src/engine/` or `src/agents/`. Pass the repo instance down via the existing PipelineContext field, never as a singleton.
 **Verification:** Run `uv run lint-imports` after the change. The `check_repo_direct_instantiation` hook must still pass.
 
 ---
 
 ### `src/engine/pipeline_context.py` (MODIFY)
-**Change:** Add `feedback_repo` and `qc_history_repo` as optional fields on `PipelineContext`, mirroring the existing `pattern_repo` field.
+**Change:** Add ONLY `feedback_repo` as an optional field on `PipelineContext`. **`qc_history_repo` is already declared** at `src/engine/pipeline_context.py:34` and the `TYPE_CHECKING` import at `pipeline_context.py:18` already exists.
+**IMPORTANT — verified state of `src/engine/pipeline_context.py` before this fix:**
+- Line 17-18: `if TYPE_CHECKING:` block already imports `PatternRepository` AND `QCHistoryRepository`
+- Line 33-34: `pattern_repo: PatternRepository | None = None` and `qc_history_repo: QCHistoryRepository | None = None` already declared
+- **Conclusion: only `feedback_repo` is missing — both the import AND the field.**
 **Exact change:**
-1. Find the existing `pattern_repo: PatternRepository | None = None` field declaration on `PipelineContext`
-2. After it, add:
-   ```python
-   feedback_repo: FeedbackRepository | None = None
-   qc_history_repo: QCHistoryRepository | None = None
-   ```
-3. Add the `TYPE_CHECKING` imports at the top of the file:
+1. Add to the existing `if TYPE_CHECKING:` block (after the `from src.persistence.qc_history_repo import QCHistoryRepository` line):
    ```python
    from src.persistence.feedback_repo import FeedbackRepository
-   from src.persistence.qc_history_repo import QCHistoryRepository
    ```
-**Constraints:** Both fields MUST be typed under `TYPE_CHECKING` only (the `check_raw_sql_in_engine` hook bans sqlalchemy imports in `src/engine/` even under `TYPE_CHECKING` — verify by re-reading how `pattern_repo` is currently declared and copy that pattern exactly). If `pattern_repo` is using a string-quoted forward reference instead of a TYPE_CHECKING import, do the same for the two new fields.
+2. Add a new field declaration on `PipelineContext`, immediately after the existing `qc_history_repo: QCHistoryRepository | None = None` line at `pipeline_context.py:34`:
+   ```python
+   feedback_repo: FeedbackRepository | None = None
+   ```
+**Constraints:** The new field MUST be typed under `TYPE_CHECKING` only (the `check_raw_sql_in_engine` pre-push hook bans sqlalchemy imports in `src/engine/` even under `TYPE_CHECKING`, but the existing `pattern_repo`/`qc_history_repo` imports prove the pattern is allowed for repository imports specifically — copy that exact pattern). The `if TYPE_CHECKING:` block is the canonical location.
 
 ---
 
@@ -227,20 +232,44 @@ async def query_by_variable(self, variable: str, limit: int = 5) -> list[QCHisto
 ---
 
 ### `src/agents/registry.py` (MODIFY)
-**Change:** Register the 2 new tool functions in `TOOL_REGISTRY` so the agent factory can resolve them when loading `coder.yaml`.
+**Change:** Register the 2 new tool functions in `TOOL_MAP` so the agent factory can resolve them when loading `coder.yaml`.
+**IMPORTANT — actual variable name is `TOOL_MAP`, NOT `TOOL_REGISTRY`.** Verified at `src/agents/registry.py:26`.
 **Exact change:**
-1. Find the `TOOL_REGISTRY` dict (it currently maps tool name strings to tool functions, e.g. `"query_patterns": query_patterns`)
-2. Add two new entries:
+1. Find the `TOOL_MAP` dict at `src/agents/registry.py:26` (it currently maps tool name strings to tool functions: `"query_patterns": query_patterns`)
+2. Add two new entries to the dict literal:
    ```python
    "query_feedback": query_feedback,
    "query_qc_history": query_qc_history,
    ```
-3. Add the imports at the top:
+3. Update the existing import line at `src/agents/registry.py:8` from:
+   ```python
+   from src.agents.tools import execute_code, inspect_data, query_patterns
+   ```
+   to:
+   ```python
+   from src.agents.tools import execute_code, inspect_data, query_feedback, query_patterns, query_qc_history
+   ```
+   (alphabetical order — matches existing convention)
+**Constraints:** Tool names in `TOOL_MAP` must match the `tools:` list entries in YAML configs exactly (case-sensitive). The factory raises a runtime KeyError if a YAML lists a tool not in `TOOL_MAP`. The imports go through the `src.agents.tools` package, NOT directly from the individual tool modules — this means **`src/agents/tools/__init__.py` must also be updated** (see new modify spec below).
+
+---
+
+### `src/agents/tools/__init__.py` (MODIFY)
+**Change:** Re-export the 2 new tool functions from the package so `src/agents/registry.py` (which imports via `from src.agents.tools import ...`) can find them.
+**IMPORTANT — verified state before this fix:**
+- Lines 25-27: imports `execute_code, inspect_data, query_patterns` from their submodules
+- Line 29: `__all__ = ["execute_code", "inspect_data", "query_patterns"]`
+**Exact change:**
+1. Add 2 new import lines after the existing `from src.agents.tools.query_patterns import query_patterns` line:
    ```python
    from src.agents.tools.query_feedback import query_feedback
    from src.agents.tools.query_qc_history import query_qc_history
    ```
-**Constraints:** Tool names in the registry must match the `tools:` list entries in YAML configs exactly (case-sensitive). The factory raises a runtime KeyError if a YAML lists a tool not in the registry.
+2. Update `__all__` to include the new tools (alphabetical order to match the existing convention):
+   ```python
+   __all__ = ["execute_code", "inspect_data", "query_feedback", "query_patterns", "query_qc_history"]
+   ```
+**Constraints:** Without this change, `src/agents/registry.py` will fail at import time with `ImportError: cannot import name 'query_feedback' from 'src.agents.tools'`. The package-level re-export is mandatory for the registry's import line to resolve.
 
 ---
 
@@ -285,17 +314,18 @@ async def query_by_variable(self, variable: str, limit: int = 5) -> list[QCHisto
 
 ## Implementation order (within Phase 17.1)
 
-1. Domain model — verify/add `QCHistoryRecord` in `src/domain/models.py`
+1. Domain model — verify/add `QCHistoryRecord` in `src/domain/models.py` (alongside `PatternRecord` and `FeedbackRecord`, around line 22+)
 2. Repository — add `QCHistoryRepository.query_by_variable` method
-3. Deps — extend `CoderDeps` with the 2 new fields
-4. Context — extend `PipelineContext` with the 2 new fields
-5. Factory — wire the 2 new repos in `src/factory.py`
+3. Deps — extend `CoderDeps` with the 2 new fields (`feedback_repo`, `qc_history_repo`)
+4. Context — add ONLY `feedback_repo` to `PipelineContext` (`qc_history_repo` already exists at line 34)
+5. Factory — wire ONLY `FeedbackRepository` into `create_pipeline_orchestrator` (`QCHistoryRepository` already wired at line 52)
 6. Runner — pass the 2 new repos through `run_variable` in `derivation_runner.py`
 7. Step executor — update ParallelMapStepExecutor's `run_variable` call site to pass the 2 new repos
 8. Tools — implement `src/agents/tools/query_feedback.py` and `src/agents/tools/query_qc_history.py`
-9. Registry — register the 2 new tools in `src/agents/registry.py`
-10. Config — update `config/agents/coder.yaml` (tools list + system prompt)
-11. Tests — write the 2 new unit test files + the 1 new integration test file
+9. Tools package — update `src/agents/tools/__init__.py` to re-export the 2 new tools (without this, registry imports fail)
+10. Registry — register the 2 new tools in `TOOL_MAP` (NOT `TOOL_REGISTRY` — the actual variable name is `TOOL_MAP`) at `src/agents/registry.py:26`
+11. Config — update `config/agents/coder.yaml` (tools list + system prompt)
+12. Tests — write the 2 new unit test files + the 1 new integration test file
 
 ---
 
@@ -320,7 +350,8 @@ All 18 pre-push hooks must remain green. Special attention to:
 ## Acceptance criteria for Phase 17.1
 
 - ✅ `query_feedback` and `query_qc_history` tools exist as files in `src/agents/tools/` and follow the `query_patterns.py` pattern
-- ✅ Both tools are registered in `src/agents/registry.py::TOOL_REGISTRY`
+- ✅ Both tools are registered in `src/agents/registry.py::TOOL_MAP` (verified actual variable name)
+- ✅ Both tools are re-exported from `src/agents/tools/__init__.py` so the package import resolves
 - ✅ `config/agents/coder.yaml` lists both tools and the system prompt teaches priority order
 - ✅ `CoderDeps`, `PipelineContext`, and `factory.py` are wired to inject `feedback_repo` and `qc_history_repo`
 - ✅ `QCHistoryRepository.query_by_variable` exists and is unit-tested
