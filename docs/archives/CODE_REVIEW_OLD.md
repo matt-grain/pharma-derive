@@ -8,47 +8,88 @@ from ARCHITECTURE.md, outdated
 
 ```
 homework/
+├── CLAUDE.md
+├── ARCHITECTURE.md            # This file
+├── decisions.md
+├── pyproject.toml
+├── uv.lock
+├── .github/workflows/ci.yml
+├── docs/
+│   ├── homework.md            # Original assignment
+│   ├── REQUIREMENTS.md        # Problem framing & decisions
+│   └── design.md              # Deliverable design document
+├── data/
+│   ├── sdtm/cdiscpilot01/     # SDTM input (XPT)
+│   └── adam/cdiscpilot01/     # ADaM ground truth (XPT)
 ├── specs/                     # Transformation specs (YAML)
 ├── src/
 │   ├── __init__.py
-│   ├── domain/                # Pure domain: models, DAG, spec parsing, code execution
+│   ├── factory.py                 # DI factory for orchestrator
+│   ├── config/                    # Infrastructure configuration
 │   │   ├── __init__.py
-│   │   ├── models.py          # DerivationRule, DAGNode, AuditRecord, etc.
-│   │   ├── dag.py             # DAG construction, topological sort
-│   │   ├── spec_parser.py     # YAML spec → DerivationRule objects
-│   │   └── executor.py        # Safe code execution + result comparison
-│   ├── agents/                # PydanticAI agent definitions
+│   │   ├── constants.py           # Shared defaults (DATABASE_URL, LLM_BASE_URL)
+│   │   ├── llm_gateway.py         # LLM model construction (AgentLens proxy)
+│   │   └── logging.py             # loguru configuration
+│   ├── domain/                    # Pure domain: models, DAG, FSM, spec parsing
 │   │   ├── __init__.py
-│   │   ├── tools.py           # Shared tools: inspect_data, execute_code
+│   │   ├── models.py              # DerivationRule, DAGNode, DerivationRunResult, etc.
+│   │   ├── exceptions.py          # CDDEError, WorkflowStateError, DerivationError, etc.
+│   │   ├── dag.py                 # DAG construction, topological sort, apply_run_result
+│   │   ├── spec_parser.py         # YAML spec → DerivationRule objects
+│   │   ├── executor.py            # Safe code execution + result comparison
+│   │   ├── source_loader.py       # CSV/XPT file loading
+│   │   ├── synthetic.py           # Privacy-safe synthetic data generation
+│   │   ├── workflow_fsm.py        # Workflow state machine (python-statemachine)
+│   │   └── workflow_models.py     # WorkflowState, WorkflowResult
+│   ├── agents/                    # PydanticAI agent definitions
+│   │   ├── __init__.py
+│   │   ├── deps.py                # Shared CoderDeps dependency container
+│   │   ├── tools/                 # Agent tools (split by responsibility)
+│   │   │   ├── __init__.py        # Re-exports: inspect_data, execute_code
+│   │   │   ├── sandbox.py         # Safe builtins, blocked tokens, namespace builder
+│   │   │   ├── inspect_data.py    # Data inspection tool (schema, nulls, ranges)
+│   │   │   ├── execute_code.py    # Sandboxed code execution tool
+│   │   │   └── tracing.py         # @traced_tool decorator for observability
 │   │   ├── spec_interpreter.py
 │   │   ├── derivation_coder.py
 │   │   ├── qc_programmer.py
 │   │   ├── debugger.py
 │   │   └── auditor.py
-│   ├── engine/                # Orchestration layer
+│   ├── engine/                    # Orchestration layer
 │   │   ├── __init__.py
-│   │   ├── orchestrator.py    # Workflow FSM, agent dispatch
-│   │   ├── llm_gateway.py     # LLM abstraction (AgentLens mailbox)
-│   │   └── logging.py         # loguru configuration
-│   ├── verification/          # QC / double programming
+│   │   ├── orchestrator.py        # Workflow controller, agent dispatch
+│   │   └── derivation_runner.py   # Per-variable coder+QC+verify+debug loop
+│   ├── verification/              # QC / double programming
 │   │   ├── __init__.py
-│   │   └── comparator.py      # Compare primary vs QC outputs, AST similarity
-│   ├── audit/                 # Traceability
+│   │   └── comparator.py
+│   ├── audit/                     # Traceability
 │   │   ├── __init__.py
-│   │   └── trail.py           # Audit trail management + JSON export
-│   ├── memory/                # Short-term + long-term memory
-│   │   ├── __init__.py
-│   │   ├── short_term.py      # Workflow state (JSON per run)
-│   │   └── long_term.py       # Validated patterns (SQLite)
-│   └── ui/                    # Streamlit HITL
-│       ├── __init__.py
-│       ├── app.py             # Main entry point
-│       └── pages/             # Streamlit multi-page
-│           ├── 1_spec_review.py
-│           ├── 2_derivation_review.py
-│           ├── 3_qc_results.py
-│           └── 4_audit_trail.py
-├── tests
+│   │   └── trail.py
+│   └── persistence/               # Database layer
+│       ├── __init__.py            # Re-exports all repos
+│       ├── database.py            # Engine + session factory
+│       ├── orm_models.py          # SQLAlchemy table definitions
+│       ├── base_repo.py           # BaseRepository with error wrapping
+│       ├── pattern_repo.py        # PatternRepository
+│       ├── feedback_repo.py       # FeedbackRepository
+│       ├── qc_history_repo.py     # QCHistoryRepository
+│       └── workflow_state_repo.py # WorkflowStateRepository
+
+├── tests/
+│   ├── conftest.py
+│   ├── unit/
+│   │   ├── test_models.py
+│   │   ├── test_dag.py
+│   │   ├── test_spec_parser.py
+│   │   ├── test_agents.py
+│   │   ├── test_executor.py
+│   │   ├── test_comparator.py
+│   │   ├── test_orchestrator.py
+│   │   ├── test_memory.py
+│   │   └── test_audit.py
+│   └── integration/
+│       └── test_workflow.py
+└── presentation/
 ```
 
 ### Env
@@ -66,7 +107,7 @@ missing dev only loadenv
 #### Main entry points
 
 (for my understanding, not a review)
-- `ui.app.py`: start the Streamlit server (`PYTHONPATH="." uv run streamlit run src/ui/app.py`)
+- `api.app.py`: FastAPI and FastMCP entry point
 
 - `src.factory`: Factory pattern for the orchestrator => create_orchestrator(spec, llm, output, db) using DerivationOrchestrator() with DI to inject repo based in db session thru SQLAlchemy to get sessoin_Factory
 
