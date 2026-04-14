@@ -30,7 +30,9 @@ if TYPE_CHECKING:
 
     from src.domain.dag import DerivationDAG
     from src.domain.models import DerivationRule
+    from src.persistence.feedback_repo import FeedbackRepository
     from src.persistence.pattern_repo import PatternRepository
+    from src.persistence.qc_history_repo import QCHistoryRepository
 
 
 async def run_variable(
@@ -43,12 +45,23 @@ async def run_variable(
     qc_agent_name: str | None = "qc_programmer",
     debugger_agent_name: str | None = "debugger",
     pattern_repo: PatternRepository | None = None,
+    feedback_repo: FeedbackRepository | None = None,
+    qc_history_repo: QCHistoryRepository | None = None,
 ) -> None:
     """Run coder + optional QC in parallel, verify, and debug if needed. Mutates dag and derived_df."""
     node = dag.get_node(variable)
     available = list(derived_df.columns)
     coder, qc_code = await _run_coder_and_qc(
-        node.rule, derived_df, synthetic_csv, available, llm_base_url, coder_agent_name, qc_agent_name, pattern_repo
+        node.rule,
+        derived_df,
+        synthetic_csv,
+        available,
+        llm_base_url,
+        coder_agent_name,
+        qc_agent_name,
+        pattern_repo,
+        feedback_repo,
+        qc_history_repo,
     )
 
     if qc_code is None:
@@ -117,6 +130,8 @@ async def _run_coder_and_qc(
     coder_name: str,
     qc_name: str | None,
     pattern_repo: PatternRepository | None = None,
+    feedback_repo: FeedbackRepository | None = None,
+    qc_history_repo: QCHistoryRepository | None = None,
 ) -> tuple[DerivationCode, DerivationCode | None]:
     """Fan-out coder and optional QC agent calls in parallel."""
     from src.config.settings import get_settings
@@ -125,7 +140,13 @@ async def _run_coder_and_qc(
     llm = create_llm(base_url=llm_base_url)
     coder = load_agent(f"{agent_dir}/{coder_name}.yaml")
     deps = CoderDeps(
-        df=df, synthetic_csv=synthetic_csv, rule=rule, available_columns=available, pattern_repo=pattern_repo
+        df=df,
+        synthetic_csv=synthetic_csv,
+        rule=rule,
+        available_columns=available,
+        pattern_repo=pattern_repo,
+        feedback_repo=feedback_repo,
+        qc_history_repo=qc_history_repo,
     )
 
     if qc_name is None:

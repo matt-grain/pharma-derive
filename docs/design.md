@@ -167,9 +167,17 @@ The audit trail is append-only (no record deletion) and exports to JSON for prog
 | Type | Storage | Scope | What is stored |
 |---|---|---|---|
 | **Short-term (working)** | `PipelineContext` in-memory + `workflow_states` table (JSON per step) | Single workflow | DAG, `derived_df`, step outputs, rejection flags, approval events. Persisted per step so runs can resume from the last checkpoint. |
-| **Long-term (validated)** | `patterns` + `feedback` + `qc_history` tables | Cross-run | Approved derivation code, reviewer notes, QC verdicts |
+| **Long-term (validated)** | `patterns` + `feedback` + `qc_history` tables, surfaced via 3 coder tools (`query_patterns`, `query_feedback`, `query_qc_history`) | Cross-run | Approved derivation code, reviewer decisions (approve/reject/override) with reasons, QC verdict history with coder/QC approaches |
 
-**Retrieval (concrete implementation):** The Coder and QC agents each have a `query_patterns` PydanticAI tool (`src/agents/tools/query_patterns.py`). Before writing code, the coder calls this tool; it looks up `PatternRepository.query_by_type(variable_type, limit=3)` and returns up to 3 approved patterns (code + study + approach label) from prior runs. The LLM is instructed to adapt a good match rather than regenerate from scratch. The QC programmer may call the same tool but its system prompt requires a *different* approach — maintaining QC independence.
+**Retrieval (concrete implementation):** The Coder agent has **three** PydanticAI LTM tools, each surfacing a distinct signal source so the LLM can weigh them by authority (human > debugger > prior agent). The system prompt instructs the coder to query them in order before generating code:
+
+1. **`query_feedback`** (`src/agents/tools/query_feedback.py`) → `FeedbackRepository.query_by_variable(variable, limit=3)`. Returns up to 3 recent reviewer decisions (approve / reject / override) with their reasons. Each row carries an action-specific phrase: a previous **rejection** means *do not propose that approach again*; an **override** means *adopt the reviewer's strategy*. **Strongest signal** — human feedback overrides everything else.
+
+2. **`query_qc_history`** (`src/agents/tools/query_qc_history.py`) → `QCHistoryRepository.query_by_variable(variable, limit=3)`. Returns up to 3 recent coder/QC verdict pairs with the verdict and both approaches. A previous **mismatch** flags an edge case the debugger had to resolve in a prior run — coder should avoid the same trap.
+
+3. **`query_patterns`** (`src/agents/tools/query_patterns.py`) → `PatternRepository.query_by_type(variable_type, limit=3)`. Returns up to 3 approved patterns (code + study + approach label) from prior runs. **Use only after** the higher-authority tools have been consulted.
+
+**Why three tools instead of one combined `query_lessons`:** keeping the sources separate preserves provenance. When the LLM sees results from three distinct tools, it can reason about *who* produced each piece of evidence — a human reviewer's rejection should weigh more than a prior auto-approved pattern. Collapsing all three into one blob would force the model to weigh evidence flat. The numbered list in the system prompt teaches the priority order through prompt structure alone, no meta-tool needed. The QC programmer agent has access to `query_patterns` only and its system prompt requires a *different* approach from any retrieved pattern — maintaining QC independence.
 
 **Write path:** The `save_patterns` builtin runs **after** the `human_review` HITL gate and **before** `audit`. It iterates the DAG and writes one `PatternRow` + one `QCHistoryRow` per `DerivationStatus.APPROVED` node, then commits once via `BaseRepository.commit()`. `save_patterns` is deliberately **omitted from `express.yaml`** — no HITL gate means no human validation, and auto-approved express output would pollute the memory.
 

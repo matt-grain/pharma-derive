@@ -109,12 +109,15 @@ name = Agents cannot import from Persistence
 type = forbidden
 source_modules = src.agents
 forbidden_modules = src.persistence
-# TYPE_CHECKING-only import on CoderDeps.pattern_repo — never executes at
-# runtime. Pyright needs it to type-check the DI-injected repo field. No agent
-# module instantiates or imports a repository at runtime — verified by the
+# TYPE_CHECKING-only imports on CoderDeps — never execute at runtime.
+# Pyright needs them to type-check DI-injected repo fields. No agent module
+# instantiates or imports a repository at runtime — verified by the
 # check_repo_direct_instantiation pre-push hook.
+# Phase 17.1: added feedback_repo and qc_history_repo (Bug #5 LTM read loop).
 ignore_imports =
     src.agents.deps -> src.persistence.pattern_repo
+    src.agents.deps -> src.persistence.feedback_repo
+    src.agents.deps -> src.persistence.qc_history_repo
 
 [importlinter:contract:agents-no-audit]
 name = Agents cannot import from Audit
@@ -136,8 +139,13 @@ forbidden_modules = src.persistence
 ignore_imports =
     src.engine.pipeline_context -> src.persistence.pattern_repo
     src.engine.pipeline_context -> src.persistence.qc_history_repo
+    src.engine.pipeline_context -> src.persistence.feedback_repo
     src.engine.derivation_runner -> src.persistence.pattern_repo
+    src.engine.derivation_runner -> src.persistence.feedback_repo
+    src.engine.derivation_runner -> src.persistence.qc_history_repo
     src.agents.deps -> src.persistence.pattern_repo
+    src.agents.deps -> src.persistence.feedback_repo
+    src.agents.deps -> src.persistence.qc_history_repo
 
 [importlinter:contract:verification-no-persistence]
 name = Verification cannot import from Persistence
@@ -199,7 +207,12 @@ ignore_imports =
     src.api.workflow_lifecycle -> src.persistence.workflow_state_repo
     src.engine.pipeline_context -> src.persistence.pattern_repo
     src.engine.pipeline_context -> src.persistence.qc_history_repo
+    src.engine.pipeline_context -> src.persistence.feedback_repo
     src.engine.derivation_runner -> src.persistence.pattern_repo
+    src.engine.derivation_runner -> src.persistence.feedback_repo
+    src.engine.derivation_runner -> src.persistence.qc_history_repo
     src.agents.deps -> src.persistence.pattern_repo
+    src.agents.deps -> src.persistence.feedback_repo
+    src.agents.deps -> src.persistence.qc_history_repo
     src.api.workflow_hitl -> src.persistence.feedback_repo
     src.api.services.override_service -> src.persistence.feedback_repo

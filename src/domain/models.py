@@ -152,6 +152,18 @@ class FeedbackRecord(BaseModel, frozen=True):
     created_at: str  # ISO 8601
 
 
+class QCHistoryRecord(BaseModel, frozen=True):
+    """A QC verdict row from a historical run, stored for cross-run learning."""
+
+    id: int
+    variable: str
+    verdict: str
+    coder_approach: str
+    qc_approach: str
+    study: str
+    created_at: str  # ISO 8601
+
+
 class QCStats(BaseModel, frozen=True):
     """Aggregate QC statistics from historical runs."""
 

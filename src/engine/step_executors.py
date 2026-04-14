@@ -74,7 +74,19 @@ class BuiltinStepExecutor(StepExecutor):
             msg = f"Unknown builtin '{step.builtin}'. Available: {list(BUILTIN_REGISTRY.keys())}"
             raise ValueError(msg)
 
+        ctx.audit_trail.record(
+            variable="",
+            action=AuditAction.STEP_STARTED,
+            agent=AgentName.ORCHESTRATOR,
+            details={"step": step.id, "builtin": step.builtin},
+        )
         await builtin_fn(step, ctx)
+        ctx.audit_trail.record(
+            variable="",
+            action=AuditAction.STEP_COMPLETED,
+            agent=AgentName.ORCHESTRATOR,
+            details={"step": step.id, "builtin": step.builtin},
+        )
 
 
 class GatherStepExecutor(StepExecutor):
@@ -90,6 +102,12 @@ class GatherStepExecutor(StepExecutor):
             step_id=step.id,
             n=len(step.agents),
             agents=step.agents,
+        )
+        ctx.audit_trail.record(
+            variable="",
+            action=AuditAction.STEP_STARTED,
+            agent=AgentName.ORCHESTRATOR,
+            details={"step": step.id, "agents": ", ".join(step.agents)},
         )
 
         # Import inside method to prevent circular imports at module load time
@@ -108,6 +126,12 @@ class GatherStepExecutor(StepExecutor):
         results: list[Any] = list(await asyncio.gather(*tasks))  # Any: see tasks comment above
         for agent_name, result in zip(step.agents, results, strict=True):
             ctx.set_output(step.id, agent_name, result.output)  # type: ignore[union-attr]  # result is Any
+        ctx.audit_trail.record(
+            variable="",
+            action=AuditAction.STEP_COMPLETED,
+            agent=AgentName.ORCHESTRATOR,
+            details={"step": step.id, "agents": ", ".join(step.agents)},
+        )
 
 
 class HITLGateStepExecutor(StepExecutor):
@@ -119,6 +143,12 @@ class HITLGateStepExecutor(StepExecutor):
             "Pipeline step '{step_id}': HITL gate — {message}",
             step_id=step.id,
             message=message,
+        )
+        ctx.audit_trail.record(
+            variable="",
+            action=AuditAction.STEP_STARTED,
+            agent=AgentName.ORCHESTRATOR,
+            details={"step": step.id, "gate_type": "hitl"},
         )
         ctx.audit_trail.record(
             variable="",
@@ -147,7 +177,20 @@ class HITLGateStepExecutor(StepExecutor):
             variable="",
             action=AuditAction.HUMAN_APPROVED,
             agent=AgentName.HUMAN,
-            details={"gate": step.id},
+            details={
+                "gate": step.id,
+                "reason": ctx.approval_reason or "(no reason provided)",
+                "approved": ", ".join(ctx.approval_approved_vars) or "(legacy no-body approve — all variables)",
+                "rejected": ", ".join(ctx.approval_rejected_vars) or "(none)",
+                "approved_count": len(ctx.approval_approved_vars),
+                "rejected_count": len(ctx.approval_rejected_vars),
+            },
+        )
+        ctx.audit_trail.record(
+            variable="",
+            action=AuditAction.STEP_COMPLETED,
+            agent=AgentName.ORCHESTRATOR,
+            details={"step": step.id, "gate_type": "hitl"},
         )
 
 
@@ -163,6 +206,16 @@ class ParallelMapStepExecutor(StepExecutor):
             raise ValueError(msg)
 
         logger.info("Pipeline step '{step_id}': parallel_map over {over}", step_id=step.id, over=step.over)
+        ctx.audit_trail.record(
+            variable="",
+            action=AuditAction.STEP_STARTED,
+            agent=AgentName.ORCHESTRATOR,
+            details={
+                "step": step.id,
+                "over": step.over or "",
+                "variables": ", ".join(ctx.dag.execution_order),
+            },
+        )
 
         # Delegate to existing derivation runner — do NOT reimplement derivation logic here
         from src.engine.derivation_runner import run_variable
@@ -187,10 +240,22 @@ class ParallelMapStepExecutor(StepExecutor):
                         qc_agent_name=qc_name,
                         debugger_agent_name=debugger_name,
                         pattern_repo=ctx.pattern_repo,
+                        feedback_repo=ctx.feedback_repo,
+                        qc_history_repo=ctx.qc_history_repo,
                     )
                     for v in layer
                 ]
             )
+        ctx.audit_trail.record(
+            variable="",
+            action=AuditAction.STEP_COMPLETED,
+            agent=AgentName.ORCHESTRATOR,
+            details={
+                "step": step.id,
+                "over": step.over or "",
+                "variables": ", ".join(ctx.dag.execution_order),
+            },
+        )
 
 
 STEP_EXECUTOR_REGISTRY: dict[StepType, StepExecutor] = {

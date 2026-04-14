@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from src.agents.tools.execute_code import execute_code
 from src.agents.tools.inspect_data import inspect_data
+from src.agents.tools.query_feedback import query_feedback
 from src.agents.tools.query_patterns import query_patterns
+from src.agents.tools.query_qc_history import query_qc_history
 
-__all__ = ["execute_code", "inspect_data", "query_patterns"]
+__all__ = ["execute_code", "inspect_data", "query_feedback", "query_patterns", "query_qc_history"]

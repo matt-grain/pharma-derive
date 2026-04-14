@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from src.domain.dag import DerivationDAG
     from src.domain.ground_truth import GroundTruthReport
     from src.domain.models import TransformationSpec
+    from src.persistence.feedback_repo import FeedbackRepository
     from src.persistence.pattern_repo import PatternRepository
     from src.persistence.qc_history_repo import QCHistoryRepository
 
@@ -32,9 +33,15 @@ class PipelineContext:
     output_dir: Path | None = None
     pattern_repo: PatternRepository | None = None
     qc_history_repo: QCHistoryRepository | None = None
+    feedback_repo: FeedbackRepository | None = None
     ground_truth_report: GroundTruthReport | None = None
     rejection_requested: bool = False
     rejection_reason: str = ""
+    # Set by workflow_hitl.approve_with_feedback_impl before releasing the HITL event;
+    # read by HITLGateStepExecutor to emit rich HUMAN_APPROVED audit details.
+    approval_reason: str = ""
+    approval_approved_vars: list[str] = field(default_factory=lambda: list[str]())
+    approval_rejected_vars: list[str] = field(default_factory=lambda: list[str]())
 
     # Step outputs — populated during execution
     spec: TransformationSpec | None = None

@@ -9,7 +9,9 @@ import pandas as pd  # noqa: TC002 — used at runtime in dataclass field
 
 if TYPE_CHECKING:
     from src.domain.models import DerivationRule, SpecMetadata
+    from src.persistence.feedback_repo import FeedbackRepository
     from src.persistence.pattern_repo import PatternRepository
+    from src.persistence.qc_history_repo import QCHistoryRepository
 
 
 @dataclass
@@ -21,6 +23,8 @@ class CoderDeps:
     rule: DerivationRule
     available_columns: list[str]
     pattern_repo: PatternRepository | None = None
+    feedback_repo: FeedbackRepository | None = None
+    qc_history_repo: QCHistoryRepository | None = None
 
 
 @dataclass

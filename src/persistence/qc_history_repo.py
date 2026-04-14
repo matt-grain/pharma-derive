@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 
-from src.domain.models import QCStats, QCVerdict
+from src.domain.models import QCHistoryRecord, QCStats, QCVerdict
 from src.persistence.base_repo import BaseRepository
 from src.persistence.orm_models import QCHistoryRow
 
@@ -33,6 +33,28 @@ class QCHistoryRepository(BaseRepository):
         )
         self._session.add(row)
         await self._flush()
+
+    async def query_by_variable(self, variable: str, limit: int = 5) -> list[QCHistoryRecord]:
+        """Retrieve recent QC verdict rows for a variable, ordered most-recent first."""
+        stmt = (
+            select(QCHistoryRow)
+            .where(QCHistoryRow.variable == variable)
+            .order_by(QCHistoryRow.created_at.desc())
+            .limit(limit)
+        )
+        result = await self._execute(stmt)
+        return [
+            QCHistoryRecord(
+                id=row.id,
+                variable=row.variable,
+                verdict=row.verdict,
+                coder_approach=row.coder_approach,
+                qc_approach=row.qc_approach,
+                study=row.study,
+                created_at=row.created_at.isoformat(),
+            )
+            for row in result.scalars()
+        ]
 
     async def get_stats(self, variable: str | None = None) -> QCStats:
         """Compute aggregate QC match/mismatch statistics."""
