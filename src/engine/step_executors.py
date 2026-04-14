@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
-from typing import TYPE_CHECKING, Any  # Any: load_agent returns Agent[Any, Any]
+from typing import TYPE_CHECKING, Any, Never  # Any: load_agent returns Agent[Any, Any]
 
 from loguru import logger
 
@@ -134,6 +134,74 @@ class GatherStepExecutor(StepExecutor):
         )
 
 
+def _emit_human_approved_audit(ctx: PipelineContext, step_id: str) -> None:
+    """Emit the HUMAN_APPROVED audit event with rich per-variable details."""
+    ctx.audit_trail.record(
+        variable="",
+        action=AuditAction.HUMAN_APPROVED,
+        agent=AgentName.HUMAN,
+        details={
+            "gate": step_id,
+            "reason": ctx.approval_reason or "(no reason provided)",
+            "approved": ", ".join(ctx.approval_approved_vars) or "(legacy no-body approve — all variables)",
+            "rejected": ", ".join(ctx.approval_rejected_vars) or "(none)",
+            "approved_count": len(ctx.approval_approved_vars),
+            "rejected_count": len(ctx.approval_rejected_vars),
+        },
+    )
+
+
+def _emit_human_rejected_audit(ctx: PipelineContext, step_id: str) -> Never:
+    """Emit the HUMAN_REJECTED audit event and raise WorkflowRejectedError."""
+    from src.domain.exceptions import WorkflowRejectedError
+
+    ctx.audit_trail.record(
+        variable="",
+        action=AuditAction.HUMAN_REJECTED,
+        agent=AgentName.HUMAN,
+        details={"gate": step_id, "reason": ctx.rejection_reason},
+    )
+    raise WorkflowRejectedError(ctx.rejection_reason)
+
+
+def _emit_parallel_map_started_audit(ctx: PipelineContext, step: StepDefinition) -> None:
+    """Emit the STEP_STARTED audit event for a parallel_map step."""
+    ctx.audit_trail.record(
+        variable="",
+        action=AuditAction.STEP_STARTED,
+        agent=AgentName.ORCHESTRATOR,
+        details={
+            "step": step.id,
+            "over": step.over or "",
+            "variables": ", ".join(ctx.dag.execution_order),  # type: ignore[union-attr]  # dag non-None guaranteed by caller
+        },
+    )
+
+
+def _emit_parallel_map_completed_audit(ctx: PipelineContext, step: StepDefinition) -> None:
+    """Emit the STEP_COMPLETED audit event for a parallel_map step."""
+    ctx.audit_trail.record(
+        variable="",
+        action=AuditAction.STEP_COMPLETED,
+        agent=AgentName.ORCHESTRATOR,
+        details={
+            "step": step.id,
+            "over": step.over or "",
+            "variables": ", ".join(ctx.dag.execution_order),  # type: ignore[union-attr]  # dag non-None guaranteed by caller
+        },
+    )
+
+
+def _resolve_agent_names(step: StepDefinition) -> tuple[str, str | None, str | None]:
+    """Extract coder, qc, and debugger agent names from step config."""
+    coder_name = str(step.config.get("coder_agent", "coder"))
+    qc_raw = step.config.get("qc_agent")
+    debugger_raw = step.config.get("debugger_agent")
+    qc_name: str | None = str(qc_raw) if qc_raw is not None else None
+    debugger_name: str | None = str(debugger_raw) if debugger_raw is not None else None
+    return coder_name, qc_name, debugger_name
+
+
 class HITLGateStepExecutor(StepExecutor):
     """Pauses the pipeline until human approval via an asyncio.Event."""
 
@@ -163,29 +231,9 @@ class HITLGateStepExecutor(StepExecutor):
         await approval_event.wait()
 
         if ctx.rejection_requested:
-            from src.domain.exceptions import WorkflowRejectedError
+            _emit_human_rejected_audit(ctx, step.id)
 
-            ctx.audit_trail.record(
-                variable="",
-                action=AuditAction.HUMAN_REJECTED,
-                agent=AgentName.HUMAN,
-                details={"gate": step.id, "reason": ctx.rejection_reason},
-            )
-            raise WorkflowRejectedError(ctx.rejection_reason)
-
-        ctx.audit_trail.record(
-            variable="",
-            action=AuditAction.HUMAN_APPROVED,
-            agent=AgentName.HUMAN,
-            details={
-                "gate": step.id,
-                "reason": ctx.approval_reason or "(no reason provided)",
-                "approved": ", ".join(ctx.approval_approved_vars) or "(legacy no-body approve — all variables)",
-                "rejected": ", ".join(ctx.approval_rejected_vars) or "(none)",
-                "approved_count": len(ctx.approval_approved_vars),
-                "rejected_count": len(ctx.approval_rejected_vars),
-            },
-        )
+        _emit_human_approved_audit(ctx, step.id)
         ctx.audit_trail.record(
             variable="",
             action=AuditAction.STEP_COMPLETED,
@@ -206,28 +254,19 @@ class ParallelMapStepExecutor(StepExecutor):
             raise ValueError(msg)
 
         logger.info("Pipeline step '{step_id}': parallel_map over {over}", step_id=step.id, over=step.over)
-        ctx.audit_trail.record(
-            variable="",
-            action=AuditAction.STEP_STARTED,
-            agent=AgentName.ORCHESTRATOR,
-            details={
-                "step": step.id,
-                "over": step.over or "",
-                "variables": ", ".join(ctx.dag.execution_order),
-            },
-        )
+        _emit_parallel_map_started_audit(ctx, step)
 
         # Delegate to existing derivation runner — do NOT reimplement derivation logic here
-        from src.engine.derivation_runner import run_variable
+        from src.engine.derivation_runner import LTMRepos, run_variable
 
-        coder_name = str(step.config.get("coder_agent", "coder"))
-        qc_raw = step.config.get("qc_agent")
-        debugger_raw = step.config.get("debugger_agent")
-        qc_name: str | None = str(qc_raw) if qc_raw is not None else None
-        debugger_name: str | None = str(debugger_raw) if debugger_raw is not None else None
+        coder_name, qc_name, debugger_name = _resolve_agent_names(step)
+        repos = LTMRepos(
+            pattern_repo=ctx.pattern_repo,
+            feedback_repo=ctx.feedback_repo,
+            qc_history_repo=ctx.qc_history_repo,
+        )
 
-        layers = ctx.dag.layers
-        for layer in layers:
+        for layer in ctx.dag.layers:
             await asyncio.gather(
                 *[
                     run_variable(
@@ -239,23 +278,12 @@ class ParallelMapStepExecutor(StepExecutor):
                         coder_agent_name=coder_name,
                         qc_agent_name=qc_name,
                         debugger_agent_name=debugger_name,
-                        pattern_repo=ctx.pattern_repo,
-                        feedback_repo=ctx.feedback_repo,
-                        qc_history_repo=ctx.qc_history_repo,
+                        repos=repos,
                     )
                     for v in layer
                 ]
             )
-        ctx.audit_trail.record(
-            variable="",
-            action=AuditAction.STEP_COMPLETED,
-            agent=AgentName.ORCHESTRATOR,
-            details={
-                "step": step.id,
-                "over": step.over or "",
-                "variables": ", ".join(ctx.dag.execution_order),
-            },
-        )
+        _emit_parallel_map_completed_audit(ctx, step)
 
 
 STEP_EXECUTOR_REGISTRY: dict[StepType, StepExecutor] = {

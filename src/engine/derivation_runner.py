@@ -8,6 +8,7 @@ Debug loop lives in debug_runner.py.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from src.agents.deps import CoderDeps
@@ -35,6 +36,15 @@ if TYPE_CHECKING:
     from src.persistence.qc_history_repo import QCHistoryRepository
 
 
+@dataclass(frozen=True)
+class LTMRepos:
+    """Immutable bundle of optional LTM repository dependencies for derivation."""
+
+    pattern_repo: PatternRepository | None = None
+    feedback_repo: FeedbackRepository | None = None
+    qc_history_repo: QCHistoryRepository | None = None
+
+
 async def run_variable(
     variable: str,
     dag: DerivationDAG,
@@ -44,9 +54,7 @@ async def run_variable(
     coder_agent_name: str = "coder",
     qc_agent_name: str | None = "qc_programmer",
     debugger_agent_name: str | None = "debugger",
-    pattern_repo: PatternRepository | None = None,
-    feedback_repo: FeedbackRepository | None = None,
-    qc_history_repo: QCHistoryRepository | None = None,
+    repos: LTMRepos | None = None,
 ) -> None:
     """Run coder + optional QC in parallel, verify, and debug if needed. Mutates dag and derived_df."""
     node = dag.get_node(variable)
@@ -59,9 +67,7 @@ async def run_variable(
         llm_base_url,
         coder_agent_name,
         qc_agent_name,
-        pattern_repo,
-        feedback_repo,
-        qc_history_repo,
+        repos or LTMRepos(),
     )
 
     if qc_code is None:
@@ -129,9 +135,7 @@ async def _run_coder_and_qc(
     llm_base_url: str,
     coder_name: str,
     qc_name: str | None,
-    pattern_repo: PatternRepository | None = None,
-    feedback_repo: FeedbackRepository | None = None,
-    qc_history_repo: QCHistoryRepository | None = None,
+    repos: LTMRepos,
 ) -> tuple[DerivationCode, DerivationCode | None]:
     """Fan-out coder and optional QC agent calls in parallel."""
     from src.config.settings import get_settings
@@ -144,9 +148,9 @@ async def _run_coder_and_qc(
         synthetic_csv=synthetic_csv,
         rule=rule,
         available_columns=available,
-        pattern_repo=pattern_repo,
-        feedback_repo=feedback_repo,
-        qc_history_repo=qc_history_repo,
+        pattern_repo=repos.pattern_repo,
+        feedback_repo=repos.feedback_repo,
+        qc_history_repo=repos.qc_history_repo,
     )
 
     if qc_name is None:
