@@ -279,6 +279,7 @@ class ParallelMapStepExecutor(StepExecutor):
                         qc_agent_name=qc_name,
                         debugger_agent_name=debugger_name,
                         repos=repos,
+                        audit_trail=ctx.audit_trail,
                     )
                     for v in layer
                 ]

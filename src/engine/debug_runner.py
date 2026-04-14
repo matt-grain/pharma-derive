@@ -20,11 +20,13 @@ from src.agents.types import (  # noqa: TC001 — used at runtime in @dataclass 
     DerivationCode,
 )
 from src.config.llm_gateway import create_llm
+from src.domain.enums import AgentName, AuditAction
 from src.domain.exceptions import DerivationError
 from src.domain.executor import ExecutionResult, execute_derivation
 from src.domain.models import CorrectImplementation, DerivationRunResult, DerivationStatus, QCVerdict
 
 if TYPE_CHECKING:
+    from src.audit.trail import AuditTrail
     from src.domain.dag import DerivationDAG
     from src.verification.comparator import VerificationResult
 
@@ -155,6 +157,22 @@ def _apply_debug_fix(
     return True
 
 
+def _record_debugger_audit(audit_trail: AuditTrail | None, variable: str, analysis: DebugAnalysis) -> None:
+    """Emit the DEBUGGER_RESOLVED per-variable audit event after the debugger returns."""
+    if audit_trail is None:
+        return
+    audit_trail.record(
+        variable=variable,
+        action=AuditAction.DEBUGGER_RESOLVED,
+        agent=AgentName.DEBUGGER,
+        details={
+            "root_cause": analysis.root_cause,
+            "chose": analysis.correct_implementation.value,
+            "suggested_fix_present": bool(analysis.suggested_fix.strip()),
+        },
+    )
+
+
 async def handle_mismatch(
     variable: str,
     dag: DerivationDAG,
@@ -164,6 +182,7 @@ async def handle_mismatch(
     vr: VerificationResult,
     llm_base_url: str,
     debugger_agent_name: str,
+    audit_trail: AuditTrail | None = None,
 ) -> None:
     """Debug a QC mismatch, attempt fix, and update the DAG."""
     ctx = DebugContext(
@@ -174,6 +193,7 @@ async def handle_mismatch(
         debugger_agent_name=debugger_agent_name,
     )
     analysis = await _debug_variable(ctx, dag, derived_df, vr)
+    _record_debugger_audit(audit_trail, variable, analysis)
     approved_code = _resolve_approved_code(analysis, coder, qc_code)
     fixed = approved_code and _apply_debug_fix(
         variable, dag, derived_df, coder, qc_code, vr, approved_code, analysis.root_cause

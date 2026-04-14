@@ -17,6 +17,7 @@ from src.agents.types import (  # noqa: TC001 — used at runtime in function si
     DerivationCode,
 )
 from src.config.llm_gateway import create_llm
+from src.domain.enums import AgentName, AuditAction
 from src.domain.executor import execute_derivation
 from src.domain.models import DerivationStatus, QCVerdict
 from src.engine.debug_runner import (
@@ -29,6 +30,7 @@ from src.verification.comparator import VerificationResult, verify_derivation
 if TYPE_CHECKING:
     import pandas as pd
 
+    from src.audit.trail import AuditTrail
     from src.domain.dag import DerivationDAG
     from src.domain.models import DerivationRule
     from src.persistence.feedback_repo import FeedbackRepository
@@ -55,6 +57,7 @@ async def run_variable(
     qc_agent_name: str | None = "qc_programmer",
     debugger_agent_name: str | None = "debugger",
     repos: LTMRepos | None = None,
+    audit_trail: AuditTrail | None = None,
 ) -> None:
     """Run coder + optional QC in parallel, verify, and debug if needed. Mutates dag and derived_df."""
     node = dag.get_node(variable)
@@ -74,14 +77,43 @@ async def run_variable(
         # Express mode — no QC, auto-approve coder output directly
         _approve_no_qc(variable, dag, derived_df, coder, available)
         return
-
     vr = verify_derivation(variable, coder.python_code, qc_code.python_code, derived_df, available)
+    _record_coder_qc_audit(audit_trail, variable, coder, qc_code, vr)
     if vr.verdict == QCVerdict.MATCH:
         _approve_match(variable, dag, derived_df, coder, qc_code, vr)
         return
-
     debugger_name = debugger_agent_name or "debugger"
-    await handle_mismatch(variable, dag, derived_df, coder, qc_code, vr, llm_base_url, debugger_name)
+    await handle_mismatch(
+        variable, dag, derived_df, coder, qc_code, vr, llm_base_url, debugger_name, audit_trail=audit_trail
+    )
+
+
+def _record_coder_qc_audit(
+    audit_trail: AuditTrail | None,
+    variable: str,
+    coder: DerivationCode,
+    qc_code: DerivationCode,
+    vr: VerificationResult,
+) -> None:
+    """Emit CODER_PROPOSED and QC_VERDICT per-variable audit events."""
+    if audit_trail is None:
+        return
+    audit_trail.record(
+        variable=variable,
+        action=AuditAction.CODER_PROPOSED,
+        agent=AgentName.CODER,
+        details={"approach": coder.approach, "code_preview": coder.python_code[:200]},
+    )
+    audit_trail.record(
+        variable=variable,
+        action=AuditAction.QC_VERDICT,
+        agent=AgentName.QC_PROGRAMMER,
+        details={
+            "verdict": vr.verdict.value,
+            "approach": qc_code.approach,
+            "code_preview": qc_code.python_code[:200],
+        },
+    )
 
 
 def _approve_no_qc(

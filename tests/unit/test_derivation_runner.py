@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pandas as pd
 import pytest
 
 from src.agents.types import DebugAnalysis, DerivationCode
+from src.audit.trail import AuditTrail
 from src.domain.dag import DerivationDAG
+from src.domain.enums import AgentName, AuditAction
 from src.domain.exceptions import DerivationError
 from src.domain.executor import ExecutionResult
 from src.domain.models import (
@@ -24,6 +26,8 @@ from src.engine.debug_runner import (
     _resolve_approved_code,  # pyright: ignore[reportPrivateUsage]
     apply_series_to_df,
 )
+from src.engine.derivation_runner import run_variable
+from src.verification.comparator import VerificationResult
 
 
 def _make_coder(code: str = "df['age'] + 1") -> DerivationCode:
@@ -195,3 +199,137 @@ def test_apply_run_result_mismatch_after_failed_fix(mock_exec: MagicMock) -> Non
 
     # Assert
     assert dag.get_node("FAIL_VAR").status == DerivationStatus.QC_MISMATCH
+
+
+# ---------------------------------------------------------------------------
+# Per-variable audit emission (Phase 17.2)
+# ---------------------------------------------------------------------------
+
+
+def _make_dag_for_var(variable: str) -> tuple[DerivationDAG, pd.DataFrame]:
+    """Build a minimal DAG and DataFrame for a single variable derivation test."""
+    rules = [
+        DerivationRule(variable=variable, source_columns=["AGE"], logic="age group logic", output_type=OutputDType.STR),
+    ]
+    dag = DerivationDAG(rules, source_columns={"AGE"})
+    derived_df = pd.DataFrame({"AGE": [25, 65, 45]})
+    return dag, derived_df
+
+
+def _make_match_vr(variable: str) -> VerificationResult:
+    """Build a VerificationResult representing a QC match."""
+    exec_ok = ExecutionResult(success=True, series_json=pd.Series(["A", "B", "A"]).to_json(), dtype="object")
+    return VerificationResult(
+        variable=variable,
+        verdict=QCVerdict.MATCH,
+        primary_result=exec_ok,
+        qc_result=exec_ok,
+    )
+
+
+def _make_mismatch_vr(variable: str) -> VerificationResult:
+    """Build a VerificationResult representing a QC mismatch."""
+    exec_ok = ExecutionResult(success=True, series_json=pd.Series(["A", "B", "A"]).to_json(), dtype="object")
+    exec_alt = ExecutionResult(success=True, series_json=pd.Series(["X", "Y", "X"]).to_json(), dtype="object")
+    return VerificationResult(
+        variable=variable,
+        verdict=QCVerdict.MISMATCH,
+        primary_result=exec_ok,
+        qc_result=exec_alt,
+    )
+
+
+@patch("src.engine.derivation_runner._run_coder_and_qc", new_callable=AsyncMock)
+@patch("src.engine.derivation_runner.verify_derivation")
+@patch("src.engine.derivation_runner._approve_match")
+async def test_run_variable_emits_coder_proposed_and_qc_verdict_events_on_match(
+    mock_approve_match: MagicMock,
+    mock_verify: MagicMock,
+    mock_run_coder_qc: AsyncMock,
+) -> None:
+    """run_variable emits CODER_PROPOSED + QC_VERDICT (match) and no DEBUGGER_RESOLVED."""
+    # Arrange
+    variable = "AGE_GROUP"
+    dag, derived_df = _make_dag_for_var(variable)
+    trail = AuditTrail(workflow_id="test-wf-001")
+    coder = _make_coder("derived['AGE_GROUP'] = df['AGE'].apply(lambda x: 'elderly' if x >= 65 else 'adult')")
+    qc = _make_qc("derived['AGE_GROUP'] = df['AGE'].map(lambda x: 'elderly' if x >= 65 else 'adult')")
+    mock_run_coder_qc.return_value = (coder, qc)
+    mock_verify.return_value = _make_match_vr(variable)
+
+    # Act
+    await run_variable(
+        variable=variable,
+        dag=dag,
+        derived_df=derived_df,
+        synthetic_csv="",
+        llm_base_url="http://localhost:11434",
+        audit_trail=trail,
+    )
+
+    # Assert
+    coder_proposed = [r for r in trail.records if r.action == AuditAction.CODER_PROPOSED]
+    qc_verdict = [r for r in trail.records if r.action == AuditAction.QC_VERDICT]
+    debugger_resolved = [r for r in trail.records if r.action == AuditAction.DEBUGGER_RESOLVED]
+
+    assert len(coder_proposed) == 1
+    assert coder_proposed[0].variable == variable
+    assert coder_proposed[0].agent == AgentName.CODER
+    assert coder_proposed[0].details["approach"] == coder.approach
+    assert coder_proposed[0].details["code_preview"] == coder.python_code[:200]
+
+    assert len(qc_verdict) == 1
+    assert qc_verdict[0].variable == variable
+    assert qc_verdict[0].agent == AgentName.QC_PROGRAMMER
+    assert qc_verdict[0].details["verdict"] == "match"
+
+    assert len(debugger_resolved) == 0
+
+
+@patch("src.engine.derivation_runner._run_coder_and_qc", new_callable=AsyncMock)
+@patch("src.engine.derivation_runner.verify_derivation")
+@patch("src.engine.debug_runner._debug_variable", new_callable=AsyncMock)
+@patch("src.engine.debug_runner.execute_derivation")
+async def test_run_variable_emits_debugger_resolved_event_when_qc_mismatches(
+    mock_exec: MagicMock,
+    mock_debug: AsyncMock,
+    mock_verify: MagicMock,
+    mock_run_coder_qc: AsyncMock,
+) -> None:
+    """run_variable emits CODER_PROPOSED + QC_VERDICT (mismatch) + DEBUGGER_RESOLVED."""
+    # Arrange
+    variable = "AGE_GROUP"
+    dag, derived_df = _make_dag_for_var(variable)
+    trail = AuditTrail(workflow_id="test-wf-002")
+    coder = _make_coder("df['AGE'] + 1")
+    qc = _make_qc("df['AGE'].add(1)")
+    mock_run_coder_qc.return_value = (coder, qc)
+    mock_verify.return_value = _make_mismatch_vr(variable)
+    mock_debug.return_value = _make_analysis(correct=CorrectImplementation.QC, fix="")
+    mock_exec.return_value = ExecutionResult(success=False, error="execution skipped in test")
+
+    # Act
+    await run_variable(
+        variable=variable,
+        dag=dag,
+        derived_df=derived_df,
+        synthetic_csv="",
+        llm_base_url="http://localhost:11434",
+        audit_trail=trail,
+    )
+
+    # Assert
+    coder_proposed = [r for r in trail.records if r.action == AuditAction.CODER_PROPOSED]
+    qc_verdict = [r for r in trail.records if r.action == AuditAction.QC_VERDICT]
+    debugger_resolved = [r for r in trail.records if r.action == AuditAction.DEBUGGER_RESOLVED]
+
+    assert len(coder_proposed) == 1
+    assert coder_proposed[0].variable == variable
+
+    assert len(qc_verdict) == 1
+    assert qc_verdict[0].details["verdict"] == "mismatch"
+
+    assert len(debugger_resolved) == 1
+    assert debugger_resolved[0].variable == variable
+    assert debugger_resolved[0].agent == AgentName.DEBUGGER
+    assert debugger_resolved[0].details["chose"] == CorrectImplementation.QC.value

@@ -89,6 +89,9 @@ class AuditAction(StrEnum):
     STEP_COMPLETED = "step_completed"
     HITL_GATE_WAITING = "hitl_gate_waiting"
     WORKFLOW_FAILED = "workflow_failed"
+    CODER_PROPOSED = "coder_proposed"
+    QC_VERDICT = "qc_verdict"
+    DEBUGGER_RESOLVED = "debugger_resolved"
 
 
 class AgentName(StrEnum):
