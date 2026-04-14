@@ -6,9 +6,16 @@ Matches TEST_MCP.md canned responses. Exits after 30 min of idle (no pending req
 from __future__ import annotations
 
 import json
+import sys
 import time
+import urllib.error
 import urllib.request
 from typing import cast
+
+# Line-buffered stdout so `print` updates surface live under `uv run` in a background shell
+# (Python block-buffers stdout on Windows when it's not a tty, which hid script progress
+# during Phase 18.1 validation).
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
 
 MAILBOX = "http://localhost:8650/mailbox"
 IDLE_TIMEOUT_S = 1800  # 30 min — deliberate long window so HITL waits don't kill the responder
@@ -18,11 +25,18 @@ def get_pending() -> list[dict[str, object]]:
     return cast("list[dict[str, object]]", json.loads(urllib.request.urlopen(MAILBOX).read()))  # noqa: S310
 
 
-def get_request(rid: int) -> dict[str, object]:
-    return cast("dict[str, object]", json.loads(urllib.request.urlopen(f"{MAILBOX}/{rid}").read()))  # noqa: S310
+def get_request(rid: int) -> dict[str, object] | None:
+    """Fetch a request by id. Returns None if the mailbox has already consumed it (404)."""
+    try:
+        return cast("dict[str, object]", json.loads(urllib.request.urlopen(f"{MAILBOX}/{rid}").read()))  # noqa: S310
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise
 
 
-def respond(rid: int, args: dict[str, object]) -> None:
+def respond(rid: int, args: dict[str, object]) -> bool:
+    """POST a canned response. Returns True on success, False if the request was already consumed (404)."""
     body = json.dumps(
         {
             "content": "",
@@ -37,28 +51,58 @@ def respond(rid: int, args: dict[str, object]) -> None:
     ).encode()
     req = urllib.request.Request(f"{MAILBOX}/{rid}", data=body, method="POST")  # noqa: S310
     req.add_header("Content-Type", "application/json")
-    urllib.request.urlopen(req)  # noqa: S310
+    try:
+        urllib.request.urlopen(req)  # noqa: S310
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return False  # request already consumed by a concurrent responder — not an error
+        raise
+    return True
 
 
-def identify(rid: int) -> tuple[str, str]:
-    """Identify (role, variable) from the mailbox request.
+def identify_role(sys_prompt: str) -> str:
+    """Classify the agent from the unique first-sentence fingerprint of its system prompt.
 
-    Matches on the FULL user message prefix — not keywords — because 'age'
+    Keyed on the exact role declaration in each agent YAML under ``config/agents/``:
+    ``coder`` → "senior statistical programmer"
+    ``qc_programmer`` → "QC (quality control) programmer"
+    ``debugger`` → "senior clinical programmer debugging"
+    ``auditor`` → "regulatory compliance auditor"
+    ``spec_interpreter`` → "clinical data specification analyst"
+
+    The first-sentence check is robust against content that appears later in the
+    prompt — including Phase 17.1's LTM tool descriptions, which mention
+    "debugger" inside the coder's prompt and used to trip the old ``"debug" in
+    sys_prompt`` heuristic.
+    """
+    head = sys_prompt[:300].lower()
+    if "senior statistical programmer" in head:
+        return "coder"
+    if "qc (quality control) programmer" in head:
+        return "qc"
+    if "senior clinical programmer debugging" in head:
+        return "debugger"
+    if "regulatory compliance auditor" in head:
+        return "auditor"
+    if "clinical data specification analyst" in head:
+        return "spec_interpreter"
+    return "unknown"
+
+
+def identify(rid: int) -> tuple[str, str] | None:
+    """Identify (role, variable) from the mailbox request, or None if stale (404).
+
+    Variable is matched on the user message prefix — not keywords — because 'age'
     appears in AGE_GROUP, IS_ELDERLY, and RISK_SCORE spec logic strings.
     """
     r = get_request(rid)
+    if r is None:
+        return None
     messages = cast("list[dict[str, str]]", r["messages"])
     sys_prompt = messages[0]["content"]
     user_msg = messages[1]["content"] if len(messages) > 1 else ""
 
-    if "debug" in sys_prompt.lower():
-        role = "debugger"
-    elif "audit" in sys_prompt.lower():
-        role = "auditor"
-    elif "QC" in sys_prompt and "INDEPENDENT" in sys_prompt:
-        role = "qc"
-    else:
-        role = "coder"
+    role = identify_role(sys_prompt)
 
     if user_msg.startswith("If age < 18") or user_msg.startswith("Age group"):
         var = "AGE_GROUP"
@@ -68,7 +112,7 @@ def identify(rid: int) -> tuple[str, str]:
         var = "IS_ELDERLY"
     elif user_msg.startswith("If IS_ELDERLY"):
         var = "RISK_SCORE"
-    elif "debug" in user_msg.lower() or "mismatch" in user_msg.lower():
+    elif role == "debugger":
         var = "DEBUG"
     elif role == "auditor":
         var = "AUDIT"
@@ -181,11 +225,17 @@ def main() -> None:
         idle_start = None
         for p in pending:
             rid = cast("int", p["request_id"])
-            role, var = identify(rid)
+            ident = identify(rid)
+            if ident is None:
+                print(f"  #{rid}: stale (consumed) — skipping")
+                continue
+            role, var = ident
             key = (role, var)
             if key in RESPONSES:
-                respond(rid, RESPONSES[key])
-                print(f"  #{rid}: {role}/{var} -> OK")
+                if respond(rid, RESPONSES[key]):
+                    print(f"  #{rid}: {role}/{var} -> OK")
+                else:
+                    print(f"  #{rid}: {role}/{var} -> SKIPPED (already consumed)")
             else:
                 print(f"  #{rid}: {role}/{var} -> UNKNOWN, skipping")
         time.sleep(2)

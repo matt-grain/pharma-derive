@@ -1,23 +1,38 @@
 """Auto-responder for CDISC ADSL mailbox test — feeds canned responses for 7 derivations."""
+# ruff: noqa: E501 — the RESPONSES dict holds canned pandas expressions that mirror real
+# generated code; splitting them would make diff-matching against LLM outputs fragile.
 
 from __future__ import annotations
 
 import json
+import sys
 import time
+import urllib.error
 import urllib.request
+from typing import cast
+
+# Line-buffered stdout so `print` updates surface live under `uv run` in a background shell.
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
 
 MAILBOX = "http://localhost:8650/mailbox"
 
 
 def get_pending() -> list[dict[str, object]]:
-    return json.loads(urllib.request.urlopen(MAILBOX).read())  # noqa: S310
+    return cast("list[dict[str, object]]", json.loads(urllib.request.urlopen(MAILBOX).read()))  # noqa: S310
 
 
-def get_request(rid: int) -> dict[str, object]:
-    return json.loads(urllib.request.urlopen(f"{MAILBOX}/{rid}").read())  # noqa: S310
+def get_request(rid: int) -> dict[str, object] | None:
+    """Fetch a request by id. Returns None if the mailbox has already consumed it (404)."""
+    try:
+        return cast("dict[str, object]", json.loads(urllib.request.urlopen(f"{MAILBOX}/{rid}").read()))  # noqa: S310
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise
 
 
-def respond(rid: int, args: dict[str, object]) -> None:
+def respond(rid: int, args: dict[str, object]) -> bool:
+    """POST a canned response. Returns True on success, False if the request was already consumed (404)."""
     body = json.dumps(
         {
             "content": "",
@@ -30,25 +45,49 @@ def respond(rid: int, args: dict[str, object]) -> None:
             ],
         }
     ).encode()
-    req = urllib.request.Request(f"{MAILBOX}/{rid}", data=body, method="POST")
+    req = urllib.request.Request(f"{MAILBOX}/{rid}", data=body, method="POST")  # noqa: S310
     req.add_header("Content-Type", "application/json")
-    urllib.request.urlopen(req)  # noqa: S310
+    try:
+        urllib.request.urlopen(req)  # noqa: S310
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return False  # request already consumed by a concurrent responder — not an error
+        raise
+    return True
 
 
-def identify(rid: int) -> tuple[str, str]:
+def identify_role(sys_prompt: str) -> str:
+    """Classify the agent from the unique first-sentence fingerprint of its system prompt.
+
+    Keyed on the exact role declaration in each agent YAML under ``config/agents/``.
+    The first-sentence check is robust against content that appears later — including
+    Phase 17.1's LTM tool descriptions, which mention "debugger" inside the coder's
+    prompt and used to trip the old ``"debug" in sys_prompt`` heuristic.
+    """
+    head = sys_prompt[:300].lower()
+    if "senior statistical programmer" in head:
+        return "coder"
+    if "qc (quality control) programmer" in head:
+        return "qc"
+    if "senior clinical programmer debugging" in head:
+        return "debugger"
+    if "regulatory compliance auditor" in head:
+        return "auditor"
+    if "clinical data specification analyst" in head:
+        return "spec_interpreter"
+    return "unknown"
+
+
+def identify(rid: int) -> tuple[str, str] | None:
+    """Identify (role, variable) from the mailbox request, or None if stale (404)."""
     r = get_request(rid)
-    msgs = r["messages"]
+    if r is None:
+        return None
+    msgs = cast("list[dict[str, str]]", r["messages"])
     sys_prompt = str(msgs[0]["content"]) if msgs else ""
     user_msg = str(msgs[1]["content"]) if len(msgs) > 1 else ""
 
-    if "debug" in sys_prompt.lower():
-        role = "debugger"
-    elif "audit" in sys_prompt.lower():
-        role = "auditor"
-    elif "QC" in sys_prompt and "INDEPENDENT" in sys_prompt:
-        role = "qc"
-    else:
-        role = "coder"
+    role = identify_role(sys_prompt)
 
     if user_msg.startswith("Age group"):
         var = "AGEGR1"
@@ -64,7 +103,7 @@ def identify(rid: int) -> tuple[str, str]:
         var = "DISCONFL"
     elif user_msg.startswith("Duration of disease"):
         var = "DURDIS"
-    elif "mismatch" in user_msg.lower() or "debug" in user_msg.lower():
+    elif role == "debugger":
         var = "DEBUG"
     elif role == "auditor":
         var = "AUDIT"
@@ -136,15 +175,15 @@ RESPONSES: dict[tuple[str, str], dict[str, object]] = {
     },
     ("coder", "DISCONFL"): {
         "variable_name": "DISCONFL",
-        "python_code": "pd.Series(np.where(df['DSDECOD'].notna() & (df['DSDECOD'] != '') & (df['DSCAT'] == 'DISPOSITION EVENT'), 'Y', ''), index=df.index)",
-        "approach": "np.where on DSCAT + DSDECOD",
-        "null_handling": "Empty if no discontinuation",
+        "python_code": "pd.Series(np.where(df['DSDECOD'].notna() & (df['DSDECOD'] != '') & (df['DSDECOD'] != 'COMPLETED') & (df['DSCAT'] == 'DISPOSITION EVENT'), 'Y', ''), index=df.index)",
+        "approach": "np.where on DSCAT + DSDECOD, excluding COMPLETED",
+        "null_handling": "Empty if no discontinuation or if subject completed the study",
     },
     ("qc", "DISCONFL"): {
         "variable_name": "DISCONFL",
-        "python_code": "df.apply(lambda r: 'Y' if pd.notna(r.get('DSDECOD')) and r.get('DSDECOD','') != '' and r.get('DSCAT','') == 'DISPOSITION EVENT' else '', axis=1)",
-        "approach": "Row-wise apply",
-        "null_handling": "Empty default",
+        "python_code": "df.apply(lambda r: 'Y' if pd.notna(r.get('DSDECOD')) and r.get('DSDECOD','') not in ('', 'COMPLETED') and r.get('DSCAT','') == 'DISPOSITION EVENT' else '', axis=1)",
+        "approach": "Row-wise apply, COMPLETED membership check",
+        "null_handling": "Empty default; COMPLETED excluded via membership check",
     },
     ("coder", "DURDIS"): {
         "variable_name": "DURDIS",
@@ -192,12 +231,18 @@ if __name__ == "__main__":
             print(f"  [woke after {empty}s idle]")
         empty = 0
         for p in pending:
-            rid = int(p["request_id"])
-            role, var = identify(rid)
+            rid = cast("int", p["request_id"])
+            ident = identify(rid)
+            if ident is None:
+                print(f"  #{rid}: stale (consumed) — skipping")
+                continue
+            role, var = ident
             key = (role, var)
             if key in RESPONSES:
-                respond(rid, RESPONSES[key])
-                print(f"  #{rid}: {role:8s} / {var:10s} OK")
+                if respond(rid, RESPONSES[key]):
+                    print(f"  #{rid}: {role:8s} / {var:10s} OK")
+                else:
+                    print(f"  #{rid}: {role:8s} / {var:10s} SKIPPED (already consumed)")
             else:
                 print(f"  #{rid}: {role:8s} / {var:10s} UNKNOWN")
         time.sleep(2)
