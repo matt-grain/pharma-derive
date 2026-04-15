@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from src.domain.dag import DerivationDAG
 from src.domain.source_loader import get_source_columns, load_source_data
 from src.domain.spec_parser import parse_spec
 from src.domain.synthetic import generate_synthetic
 
 _ADSL_SPEC = Path("specs/adsl_cdiscpilot01.yaml")
+_CDISC_DATA = Path("data/sdtm/cdiscpilot01")
+_SKIP_NO_DATA = pytest.mark.skipif(
+    not _CDISC_DATA.exists(), reason="CDISC data not downloaded (run scripts/download_data.py)"
+)
 
 
 def test_adsl_spec_parses_successfully() -> None:
@@ -28,6 +34,7 @@ def test_adsl_spec_parses_successfully() -> None:
     assert "DURDIS" in variables
 
 
+@_SKIP_NO_DATA
 def test_adsl_source_loads_all_domains() -> None:
     """Load source data from 4 SDTM domains and verify key columns exist."""
     # Arrange
@@ -45,6 +52,7 @@ def test_adsl_source_loads_all_domains() -> None:
     assert "DSDECOD" in df.columns
 
 
+@_SKIP_NO_DATA
 def test_adsl_dag_builds_correct_layers() -> None:
     """Build DAG from ADSL spec and verify layer ordering."""
     # Arrange
@@ -67,6 +75,7 @@ def test_adsl_dag_builds_correct_layers() -> None:
     assert efffl_layer > 0
 
 
+@_SKIP_NO_DATA
 def test_adsl_synthetic_generates_correct_shape() -> None:
     """Generate synthetic dataset from loaded CDISC source data."""
     # Arrange

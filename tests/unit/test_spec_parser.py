@@ -12,6 +12,11 @@ from src.domain.source_loader import get_source_columns, load_source_data
 from src.domain.spec_parser import parse_spec
 from src.domain.synthetic import generate_synthetic
 
+_CDISC_DATA = Path("data/sdtm/cdiscpilot01")
+_SKIP_NO_DATA = pytest.mark.skipif(
+    not _CDISC_DATA.exists(), reason="CDISC data not downloaded (run scripts/download_data.py)"
+)
+
 
 def test_parse_spec_simple_mock(sample_spec_path: Path) -> None:
     # Act
@@ -152,6 +157,7 @@ def test_parse_spec_xpt_format_accepted(tmp_path: Path) -> None:
     assert spec.source.format == "xpt"
 
 
+@_SKIP_NO_DATA
 def test_load_source_data_xpt_reads_dm() -> None:
     """Load DM domain from real CDISC XPT files."""
     # Arrange
