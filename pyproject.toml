@@ -65,5 +65,15 @@ omit = ["src/ui/*"]  # Streamlit pages are integration-tested manually, not unit
 
 [dependency-groups]
 dev = [
-    "pydot>=4.0.1",
+    "pytest>=8.0,<9",
+    "pytest-asyncio>=0.24,<1",
+    "pytest-cov>=6.0,<7",
+    "ruff>=0.8,<1",
+    "pyright>=1.1,<2",
+    "pandas-stubs>=2.2,<3",
+    "pre-commit>=4.5,<5",
+    "import-linter>=2.11,<3",
+    "vulture>=2.16,<3",
+    "radon>=6.0,<7",
+    "httpx>=0.28,<1",
 ]
