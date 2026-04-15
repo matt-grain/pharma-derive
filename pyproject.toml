@@ -55,7 +55,7 @@ typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
 reportMissingTypeStubs = false
-exclude = ["scripts", "tools"]
+exclude = ["scripts", "tools", ".venv", "node_modules", "frontend", "data"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
