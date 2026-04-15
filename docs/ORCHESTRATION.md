@@ -250,12 +250,17 @@ QC mismatch detected
 
 ### 2.6 HITL Gates
 
-| Gate | When | What Human Sees | Actions Available |
-|------|------|----------------|-------------------|
-| **Gate 1: Spec Review** | After Spec Interpreter | Extracted rules + flagged ambiguities | Approve / Edit rules / Add missing rules |
-| **Gate 2: QC Dispute** | On unresolved QC mismatch | Both implementations + Debugger analysis + divergent rows | Pick Coder / Pick QC / Manual override / Flag spec |
-| **Gate 3: Final Review** | After all derivations complete | Full derived dataset + QC summary + comparison with ground truth | Approve / Reject specific variables / Request re-derivation |
-| **Gate 4: Audit Sign-off** | After Auditor completes | Audit report + lineage graph + compliance checklist | Sign off / Request changes |
+**Design choice:** One deep gate with three actions instead of four shallow gates.
+
+The original design proposed 4 gates (Spec Review, QC Dispute, Final Review, Audit Sign-off). After evaluation, we consolidated to **one deep review gate** (`human_review` step in `config/pipelines/clinical_derivation.yaml`) with richer actions. Rationale: every HITL gate is a reviewer context switch. Clinical SMEs are expensive; their time is the bottleneck. A single rich dialog where the reviewer handles all concerns at once is more efficient than four separate interruptions.
+
+| Action | Endpoint | What Human Sees | What Gets Persisted |
+|--------|----------|----------------|---------------------|
+| **Approve with feedback** | `POST /workflows/{id}/approve` | ApprovalDialog with per-variable checkboxes (defaulting to approved), optional free-text notes | One `FeedbackRow` per variable with `action_taken = approved/rejected` |
+| **Reject with reason** | `POST /workflows/{id}/reject` | RejectDialog requiring mandatory reason | Workflow-level `FeedbackRow`, `HUMAN_REJECTED` audit event, FSM transitions to `HUMAN_REJECTED` via `WorkflowRejectedError` |
+| **Override code** | `POST /workflows/{id}/variables/{var}/override` | CodeEditorDialog with current code editable, mandatory change reason | New code executed on `derived_df` before state mutation; on success DAG node + audit trail + `FeedbackRow` updated together |
+
+**Enterprise mode:** `config/pipelines/enterprise.yaml` defines 3 separate `hitl_gate` steps for 21 CFR Part 11 environments requiring more formal separation of concerns. Same engine, different pipeline YAML.
 
 ---
 
