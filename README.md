@@ -244,3 +244,22 @@ uv run python scripts/generate_diagrams.py
 | `orchestration_sequence.svg` | Full workflow: User → API → PipelineInterpreter → StepExecutors → LTM / FS |
 | `derivation_detail.svg` | Per-variable loop: LTM read → Coder + QC parallel → comparator → debugger → audit |
 
+## Screenshots
+
+![Dashboard](https://raw.githubusercontent.com/matt-grain/pharma-derive/refs/heads/main/presentation/screenshots/dashboard.png)
+
+![Specs](https://raw.githubusercontent.com/matt-grain/pharma-derive/refs/heads/main/presentation/screenshots/specs.png)
+
+![Workflow Status](https://raw.githubusercontent.com/matt-grain/pharma-derive/refs/heads/main/presentation/screenshots/wf_status.png)
+
+![DAG](https://raw.githubusercontent.com/matt-grain/pharma-derive/refs/heads/main/presentation/screenshots/wf_DAG.png)
+
+![Code](https://raw.githubusercontent.com/matt-grain/pharma-derive/refs/heads/main/presentation/screenshots/wf_code.png)
+
+![Audit](https://raw.githubusercontent.com/matt-grain/pharma-derive/refs/heads/main/presentation/screenshots/wf_audit.png)
+
+![Data](https://raw.githubusercontent.com/matt-grain/pharma-derive/refs/heads/main/presentation/screenshots/wf_data.png)
+
+![Pipeline](https://raw.githubusercontent.com/matt-grain/pharma-derive/refs/heads/main/presentation/screenshots/wf_pipeline.png)
+
+![AgentLens](https://raw.githubusercontent.com/matt-grain/pharma-derive/refs/heads/main/presentation/screenshots/agentlens_report.png)
