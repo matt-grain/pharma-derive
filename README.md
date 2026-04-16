@@ -37,7 +37,23 @@ In the browser at `http://localhost:3000`:
 2. When the banner turns amber (`human_review`), click **Approve**
 3. Check the **Data** tab (SDTM + ADaM panels) and `GET /api/v1/workflows/{id}/ground_truth` for the comparison against the official CDISC reference — see `docs/GROUND_TRUTH_REPORT.md`.
 
-**~90 seconds end-to-end.** Swap the responder for a live Claude key via `LLM_BASE_URL` + `LLM_API_KEY` to run with real LLM calls.
+**~90 seconds end-to-end.** To use a real LLM instead of the canned responder, two options:
+
+```bash
+# Option A: AgentLens proxy mode (real LLM + OTel tracing)
+# Replace terminal 1 with:
+cd ../AgentLens && uv run agentlens serve --mode proxy --proxy-to https://api.anthropic.com --traces-dir ../pharma-derive/traces
+# Then set in .env:
+#   LLM_API_KEY=sk-ant-...        (your Anthropic key)
+#   LLM_MODEL=claude-sonnet-4-20250514
+
+# Option B: Direct LLM (bypass AgentLens entirely)
+# Skip terminal 1, set in .env:
+#   LLM_BASE_URL=https://api.anthropic.com/v1
+#   LLM_API_KEY=sk-ant-...
+#   LLM_MODEL=claude-sonnet-4-20250514
+# No terminal 4 (mailbox responder) needed for either option.
+```
 
 ## Quick Start — Docker stack (WSL2 / Linux)
 
@@ -81,7 +97,26 @@ docker compose ps         # verify everything is healthy
 
 `nginx` is published on **8080**, not 80, because rootless Docker in WSL2 cannot bind privileged ports.
 
-### 4. Shut down
+### 4. Using a real LLM (Docker)
+
+The default stack runs in **mailbox mode** (canned responses, no API key needed). To use a real LLM, override the AgentLens command and pass your API key:
+
+```bash
+# In docker-compose.override.yml (create this file, git-ignored):
+services:
+  agentlens:
+    command: ["agentlens", "serve", "--mode", "proxy", "--proxy-to", "https://api.anthropic.com", "--port", "8650", "--traces-dir", "/app/traces"]
+  backend:
+    environment:
+      - LLM_BASE_URL=http://agentlens:8650/v1
+      - LLM_API_KEY=sk-ant-...
+      - LLM_MODEL=claude-sonnet-4-20250514
+      - DATABASE_URL=postgresql+asyncpg://cdde:devonly@db:5432/cdde_local
+```
+
+Then `docker compose up -d` — compose merges the override automatically. No terminal 4 (mailbox responder) needed. Traces still land in `./traces/`.
+
+### 5. Shut down
 
 ```bash
 docker compose down         # stop + remove containers, keep the PostgreSQL volume
